@@ -24,7 +24,7 @@
   };
 
   // ---------- pixel-art file icons: 12x12 grids in the teal family ----------
-  const INK = { k: '#051214', d: '#0e5c60', m: '#28c4b8', a: '#78ffe2', h: '#e6fffa' };
+  const INK = { k: '#130b06', d: '#5a2e14', m: '#b86434', a: '#f5ac82', h: '#fdf0e8' };
   const blank = () => Array.from({ length: 12 }, () => Array(12).fill('.'));
   const put = (g, cells, ch) => { for (const [r, c] of cells) if (g[r]?.[c] != null) g[r][c] = ch; };
   const row = (g, r, c0, c1, ch) => { for (let c = c0; c <= c1; c++) g[r][c] = ch; };
@@ -152,7 +152,7 @@
     if (pose === 'work') {
       cy += Math.sin(T * 2.4 + seed) * 1.2 * dpr; sy = 1 + Math.sin(T * 4.8 + seed) * 0.03; sx = 2 - sy;
       blob(ctx, cx, cy, r, sx, sy, 0, cell); eyes(ctx, cx, cy, r, sx, sy, cell, open, [0.3, 0]);
-      if (glyph && GLYPHS[glyph]) bits(ctx, GLYPHS[glyph], S - 7 * dpr, 0, Math.max(1, Math.round(dpr)), G?.HOT ?? '#e6fffa');
+      if (glyph && GLYPHS[glyph]) bits(ctx, GLYPHS[glyph], S - 7 * dpr, 0, Math.max(1, Math.round(dpr)), G?.HOT ?? '#fdf0e8');
       return;
     }
     if (pose === 'wait') {
@@ -161,8 +161,8 @@
       blob(ctx, cx, cy - hop + (1 - sy) * r, r, sx, sy, 0, cell); eyes(ctx, cx, cy - hop, r, sx, sy, cell, 1, [0, -1]);
       // A pixel "?" in a small bubble, top right.
       const px = Math.max(1, Math.round(dpr)), bx = S - 8 * dpr, by = 0;
-      ctx.fillStyle = 'rgba(5,18,20,0.95)'; ctx.fillRect(bx - px, by, 7 * px, 9 * px);
-      bits(ctx, ASK, bx, by + px, px, G?.ACC ?? '#78ffe2');
+      ctx.fillStyle = 'rgba(19, 11, 6, 0.95)'; ctx.fillRect(bx - px, by, 7 * px, 9 * px);
+      bits(ctx, ASK, bx, by + px, px, G?.ACC ?? '#f5ac82');
       return;
     }
     if (pose === 'done') {
@@ -173,7 +173,7 @@
       // Sparkles, then the pen's tick (agent-cards.js draws the same mark).
       if (!reduce && t < 1.2) for (let i = 0; i < 4; i++) {
         const a = -Math.PI / 2 + (i - 1.5) * 0.9, d = 6 + t * 8, f = clamp(1 - Math.abs(t - 0.5) / 0.6, 0, 1);
-        ctx.globalAlpha = f; ctx.fillStyle = i % 2 ? (G?.ACC ?? '#78ffe2') : (G?.HOT ?? '#e6fffa');
+        ctx.globalAlpha = f; ctx.fillStyle = i % 2 ? (G?.ACC ?? '#f5ac82') : (G?.HOT ?? '#fdf0e8');
         const x = size / 2 + Math.cos(a) * (size * 0.3 + d) - 1, y = size / 2 - 4 + Math.sin(a) * (size * 0.3 + d) - 1;
         ctx.fillRect(x, y - 1, 1, 3); ctx.fillRect(x - 1, y, 3, 1);
       }

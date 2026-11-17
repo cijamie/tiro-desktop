@@ -25,7 +25,7 @@ const lines = everyLine({ who: 'ChatGPT' });
 assert.equal(new Set(lines.map((l) => l.code)).size, lines.length, 'each cause has its own code');
 for (const l of lines) assert.match(l.code, /^E[1-7][0-9A-F]$/);
 
-// ---- a cause Roamies doesn't know: the area's code in the line, and Copy details offered
+// ---- a cause Tiro doesn't know: the area's code in the line, and Copy details offered
 for (const area of AREA_NAMES) {
   const p = explain(area, new Error('zxqv never seen before'), { who: 'ChatGPT' });
   assert.equal(p.known, false);
@@ -107,9 +107,9 @@ const CASES = [
   ['update', 'Permission denied (os error 13)', 'x', "I couldn't replace the app. Reinstall it from GitHub."],
   ['update', 'No space left on device (os error 28)', 'x', 'Not enough disk space for the update. Free some up.'],
   ['hearing', 'The network connection was lost.', 'x', 'Speech recognition needs the internet. Try again.'],
-  ['hearing', 'Load model from parakeet.onnx failed', 'x', "My voice model didn't load. Restart Roamies."],
+  ['hearing', 'Load model from parakeet.onnx failed', 'x', "My voice model didn't load. Restart Tiro."],
   ['screen', new Error('Screen Recording permission is off'), 'x', 'I need Screen Recording permission for that.'],
-  ['screen', new Error("Roamies didn't answer in time."), 'x', 'The screenshot took too long. Try again.'],
+  ['screen', new Error("Tiro didn't answer in time."), 'x', 'The screenshot took too long. Try again.'],
   ['diagnostics', Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' }), 'x', 'Not enough disk space for the diagnostics file.'],
   ['diagnostics', Object.assign(new Error("EACCES: permission denied, open '/Users/jane/Downloads/roamies-diagnostics.log'"), { code: 'EACCES' }), 'x', "I couldn't write the diagnostics file there."],
 ];
@@ -133,11 +133,11 @@ const who = { home: '/Users/jane', user: 'jane' };
 const leaky = new Error('POST https://api.example.com/v1?api_key=SECRETVALUE failed for jane.doe@example.com with Authorization: Bearer abcdefghijklmnop123456 and sk-ant-REDACTME1234567890abcdef and eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.c2lnbmF0dXJlLXZhbHVl in /Users/jane/.gg/auth.json {"refresh_token":"rt-0123456789"}');
 const problem = { ...explain('sign-in', leaky, { who: 'ChatGPT' }), area: 'sign-in', at: Date.UTC(2026, 10, 11, 9, 30) };
 const details = detailsText(problem, { version: '0.1.40', os: 'macOS 15.1 (darwin arm64)' }, who);
-assert.match(details, /^Roamies error E10 \(sign-in\)\nVersion: 0\.1\.40\nOS: macOS 15\.1 \(darwin arm64\)\nTime: 2026-11-11T09:30:00\.000Z\nShown: Sign-in didn't work \(E10\)\. Try again\.\n\n/);
+assert.match(details, /^Tiro error E10 \(sign-in\)\nVersion: 0\.1\.40\nOS: macOS 15\.1 \(darwin arm64\)\nTime: 2026-11-11T09:30:00\.000Z\nShown: Sign-in didn't work \(E10\)\. Try again\.\n\n/);
 for (const secret of ['SECRETVALUE', 'jane.doe', 'abcdefghijklmnop123456', 'REDACTME', 'eyJhbGciOiJSUzI1NiJ9', '/Users/jane', 'rt-0123456789']) assert.ok(!details.includes(secret), `${secret} is scrubbed`);
 assert.match(details, /POST https:\/\/api\.example\.com\/v1\?api_key=<redacted> failed for <email>/);
 assert.ok(detailsText({ ...problem, raw: 'y'.repeat(20000) }, {}, who).length < 6400, 'details stay a pasteable size');
-assert.match(detailsText(undefined), /^Roamies error \? \(\?\)/, 'nothing to report still makes text');
+assert.match(detailsText(undefined), /^Tiro error \? \(\?\)/, 'nothing to report still makes text');
 
 // Regression: prompt() kept readyAgent()'s message in a local `problem`, hiding problem(), so a failed request
 // crashed with "problem is not a function" instead of saying what went wrong.

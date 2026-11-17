@@ -1,10 +1,9 @@
 name: CI
 
+# Tiro: run by hand only (Actions > CI > Run workflow). It builds on macOS too, which costs 10x the minutes on a
+# private repo; tiro-windows.yml builds the installer on every push instead.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -1,0 +1,100 @@
+# Tiro: builds the Windows installer on every push to main (or by hand: Actions > Tiro Windows > Run workflow) and
+# puts it on the "Latest build" pre-release (Releases on the repo page), replacing the one before.
+# Unsigned, like Roamies' own Windows build: SmartScreen warns the first time (More info > Run anyway).
+name: Tiro Windows
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tiro-windows
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+        working-directory: showcase/tauri
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: showcase/tauri/sidecar/package-lock.json
+
+      - name: Install sidecar dependencies
+        working-directory: showcase/tauri/sidecar
+        run: npm ci
+
+      - name: Test sidecar
+        working-directory: showcase/tauri/sidecar
+        run: npm test
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            showcase/tauri/src-tauri -> target
+            showcase/tauri/src-tauri/voice-win -> target
+            showcase/tauri/src-tauri/hands-win -> target
+          key: tiro-windows
+
+      - name: Install the Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      # Same as Roamies' release.yml: fetch NSIS through the API, since GitHub's release links sometimes time out.
+      - name: Prefetch NSIS for the installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA 'tauri'; $tmp = Join-Path $env:RUNNER_TEMP 'nsis'
+          New-Item -ItemType Directory -Force $dir, $tmp | Out-Null
+          try {
+            gh release download nsis-3.13 -R tauri-apps/binary-releases -p nsis-3.13.zip -D $tmp --clobber
+            if ($LASTEXITCODE) { throw 'NSIS download failed' }
+            gh release download nsis_tauri_utils-v0.5.3 -R tauri-apps/nsis-tauri-utils -p nsis_tauri_utils.dll -D $tmp --clobber
+            if ($LASTEXITCODE) { throw 'nsis_tauri_utils download failed' }
+            if ((Get-FileHash (Join-Path $tmp 'nsis-3.13.zip') -Algorithm SHA1).Hash -ne 'DB14F8AF2EA346B786C6AE19343F61AAF5E09B8E') { throw 'NSIS hash mismatch' }
+            if ((Get-FileHash (Join-Path $tmp 'nsis_tauri_utils.dll') -Algorithm SHA1).Hash -ne '75197FEE3C6A814FE035788D1C34EAD39349B860') { throw 'nsis_tauri_utils hash mismatch' }
+            Remove-Item -Recurse -Force (Join-Path $dir 'NSIS'), (Join-Path $dir 'nsis-3.13') -ErrorAction SilentlyContinue
+            Expand-Archive (Join-Path $tmp 'nsis-3.13.zip') -DestinationPath $dir
+            Rename-Item (Join-Path $dir 'nsis-3.13') 'NSIS'
+            $add = Join-Path $dir 'NSIS/Plugins/x86-unicode/additional'
+            New-Item -ItemType Directory -Force $add | Out-Null
+            Copy-Item (Join-Path $tmp 'nsis_tauri_utils.dll') $add
+            Write-Host "NSIS ready in $dir"
+          } catch { Write-Host "Couldn't prefetch NSIS ($_); the bundler will download it itself." }
+
+      # build.sh copies the web files, bundles the sidecar and Node, builds the voice and hands helpers, then
+      # runs `cargo tauri build`. No updater signing: createUpdaterArtifacts is off in tauri.conf.json.
+      - name: Build the installer
+        env:
+          TAURI_BUNDLES: nsis
+        run: ./build.sh release --target x86_64-pc-windows-msvc
+
+      - name: Put it on the Latest build release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          files=(src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe)
+          [ ${#files[@]} -gt 0 ] || { echo "No installer was built"; exit 1; }
+          cp "${files[0]}" "$RUNNER_TEMP/Tiro-setup.exe"
+          gh release view latest-build >/dev/null 2>&1 || gh release create latest-build --prerelease --title "Latest build" --notes "The newest Windows installer, built from main."
+          gh release upload latest-build "$RUNNER_TEMP/Tiro-setup.exe" --clobber
+          gh release edit latest-build --notes "The newest Windows installer, built from main at ${GITHUB_SHA::7} ($(date -u +'%Y-%m-%d %H:%M UTC'))."
+          echo "Installer: Tiro-setup.exe on the Latest build release"

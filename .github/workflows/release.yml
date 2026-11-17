@@ -7,9 +7,8 @@
 # in-app updater reads from the newest published release.
 name: Release
 
+# Tiro: Roamies' signed release (needs Apple and updater secrets Tiro doesn't have). Kept for later, by hand only.
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:

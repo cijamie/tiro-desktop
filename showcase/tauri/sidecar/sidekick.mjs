@@ -54,6 +54,7 @@ import { OLLAMA, connectLocal, contextNote, downNote, forgetLocal, isSmallModel,
 import { activityLogs, buildReport, redact, reportDir, reportName, reveal, run, scrubConfig, tail } from './diagnostics.mjs';
 import { detailsText, explain } from './errors.mjs';
 import { aboutRoamies } from './about.mjs';
+import { tiroPrompt } from './tiro.mjs';
 import { whatsNewOnStart } from './whatsnew.mjs';
 import { z } from 'zod';
 
@@ -81,7 +82,7 @@ const say = (text, mood) => (onboarding ? ob({ kind: 'say', text, mood }) : ui({
 const sayOut = say;
 
 const VERSION = process.env.ROAMIES_VERSION || '0.0.0';
-const UPDATE_REPO = 'KenKaiii/Roamies';
+const UPDATE_REPO = 'cijamie/tiro-desktop'; // Tiro's own releases, never Roamies' (an update from there would replace Tiro)
 const HOME = os.homedir();
 // ROAMIES_DATA_DIR (tests and benchmarks): config, sessions and memory go there instead; sign-in stays in ~/.gg.
 const CONFIG_PATH = process.env.ROAMIES_DATA_DIR ? path.join(process.env.ROAMIES_DATA_DIR, 'sidekick.json') : path.join(HOME, '.gg', 'sidekick.json');
@@ -125,11 +126,12 @@ const HOTKEYS_OK = hasHotkeys(process.platform, SESSION);
 const SIZES = [['default', 'Default'], ['small', 'Small'], ...(POINTER_OK ? [['cursor', 'Cursor']] : [])];
 const sizeNow = () => (SIZES.some(([s]) => s === config.size) ? config.size : 'default');
 // What the sidekick looks like: the goo blob, JARVIS (a globe of light with a HUD reticle at cursor size) or
-// one of four characters, each with its own Fish Audio voice. Roamie's used to be JARVIS's, saved in every
+// one of four characters, each with its own Fish Audio voice. Tiro's used to be JARVIS's, saved in every
 // config as fishVoice, so the voice comes from the look and that setting is no longer read. (With Gemini as the
 // voice, it's the one Gemini voice the user picked, whatever the look.)
 const LOOKS = [
-  ['classic', 'Roamie', DEFAULT_VOICE],
+  // Tiro: the classic look, renamed, speaking with JARVIS's Fish Audio voice.
+  ['classic', 'Tiro', 'e13fa398a7f445a685316a3de6089ce7'],
   ['jarvis', 'JARVIS', 'e13fa398a7f445a685316a3de6089ce7'],
   ['anime', 'Anime Girl', 'd8f3b4c1199f4568a767ec54112d2b17'],
   ['sarah', 'Sarah', '933563129e564b19a115bedd57b7406a'],
@@ -140,11 +142,11 @@ const lookVoice = () => (LOOKS.find(([id]) => id === config.look) ?? LOOKS[0])[2
 // The look's voice with Gemini and with VoiceStudio: the user's pick for it, else its own default.
 const geminiVoice = () => config.geminiVoices?.[config.look] ?? GEMINI_LOOK_VOICES[config.look] ?? GEMINI_DEFAULT_VOICE;
 const studioVoice = () => config.studioVoices?.[config.look] ?? null;
-// Its name is its look's: Roamie, JARVIS, Anime Girl, Sarah, Adrian or Rita X. Roamies is the app.
+// Its name is its look's: Tiro, JARVIS, Anime Girl, Sarah, Adrian or Rita X. Tiro is the app.
 const lookName = () => (LOOKS.find(([id]) => id === config.look) ?? LOOKS[0])[1];
 // What each says when it's picked, in its own voice (Settings and the setup guide show the same words).
-const LOOK_GREETINGS = { classic: 'Classic me!', jarvis: 'At your service.', anime: 'Yay, hi hi!', sarah: 'Hey, nice to meet you!', adrian: "Alright, let's do this.", rita: 'Shall we get to work?' };
-const LOOK_BODY = { classic: 'a tiny glowing pixel creature', jarvis: 'a glowing sphere of light', anime: 'a pixel anime girl', sarah: 'a pixel woman', adrian: 'a pixel man', rita: 'a pixel secretary in cat-eye glasses' };
+const LOOK_GREETINGS = { classic: 'Tiro, at your service.', jarvis: 'At your service.', anime: 'Yay, hi hi!', sarah: 'Hey, nice to meet you!', adrian: "Alright, let's do this.", rita: 'Shall we get to work?' };
+const LOOK_BODY = { classic: 'a small glowing pixel assistant', jarvis: 'a glowing sphere of light', anime: 'a pixel anime girl', sarah: 'a pixel woman', adrian: 'a pixel man', rita: 'a pixel secretary in cat-eye glasses' };
 const VOICE_OK = hasVoice(process.platform);
 // Windows and Linux have no on-device speech API apps can use, so voice there runs Parakeet on the PC. Its model
 // is downloaded once: from the setup guide, or the first time voice is used.
@@ -329,8 +331,8 @@ const keyWords = (accel) => accel.replace(/Key|Digit/g, '').split('+')
   .map((p) => (MAC ? { Alt: 'Option' }[p] ?? p : { Control: 'Ctrl', Command: LINUX ? 'Super' : 'Win' }[p] ?? p)).join('+');
 const TRAY = MAC ? 'menu bar' : 'system tray';
 // Where settings live now: the panel that opens from the icon (the menu is just the basics). Linux trays don't
-// report clicks, so there it's the icon's menu, or starting Roamies again (which also works with no tray at all).
-const PANEL = LINUX ? 'the panel (Open Panel… in my tray icon\'s menu, or open Roamies again from your apps)' : MAC ? `the panel (click my ${TRAY} icon)` : 'the panel (click my icon by the clock, behind the ^ arrow if it isn\'t showing, or open Roamies again from the Start menu)';
+// report clicks, so there it's the icon's menu, or starting Tiro again (which also works with no tray at all).
+const PANEL = LINUX ? 'the panel (Open Panel… in my tray icon\'s menu, or open Tiro again from your apps)' : MAC ? `the panel (click my ${TRAY} icon)` : 'the panel (click my icon by the clock, behind the ^ arrow if it isn\'t showing, or open Tiro again from the Start menu)';
 // What the shortcuts are on Wayland: whatever keys they bound to these commands in their desktop's settings.
 // ROAMIES_LAUNCH: how this copy is started (the app says: plain roamies for a package, the AppImage's path for one).
 const LAUNCH = process.env.ROAMIES_LAUNCH || 'roamies';
@@ -501,10 +503,10 @@ const { tools, hands, whereNow, frontNow: frontData, frontBounds, ink, nextTurn 
     return c?.accessToken ? { apiKey: c.accessToken, baseUrl: c.baseUrl } : null;
   },
 });
-// The app's own manual, read when they ask about Roamies rather than sent with every request.
+// The app's own manual, read when they ask about Tiro rather than sent with every request.
 tools.push({
   name: 'about_roamies',
-  description: 'How Roamies works: where it lives, its menus, the panel and each settings page, updates, what to do when something is not working, and who made it. Call it before answering a question about the app.',
+  description: 'How Tiro works: where it lives, its menus, the panel and each settings page, updates, what to do when something is not working, and who made it. Call it before answering a question about the app.',
   parameters: z.object({}),
   execute: async () => aboutRoamies({ name: lookName(), looks: LOOKS.map(([, label]) => label), mac: MAC, linux: LINUX, snap: SNAP_OK, pointer: POINTER_OK, voice: VOICE_OK, hotkeys: HOTKEYS_OK }),
 });
@@ -612,14 +614,15 @@ const VOICE_STYLE = `You talk out loud: what you write is spoken in your voice a
 Your voice carries feeling: start a sentence with a voice cue in square brackets when the moment calls for it, and it's performed, never shown or read out. Moods: ${VOICE_CUES.emotions.filter((e) => !EMOTES.includes(e)).join(', ')}; soften or strengthen one with slightly, very or extremely ("[slightly sad]"), or pair two ("[warm and curious]"). How it's said, placed right before the words: ${VOICE_CUES.tones.join(', ')} ("It's [emphasis] today."). Sounds, followed by the sound in words: ${VOICE_CUES.sounds.join(', ')} ("[chuckling] Heh, fair enough.", "[sighing] Long day."). Pauses and background: ${VOICE_CUES.effects.join(', ')}. You can also describe the delivery in a few plain words when no single cue fits ("[quietly, a little embarrassed]", "[bright and bouncy]"). Act it: your voice really performs these, so let the feeling show. Match what's really happening: laugh at something funny, go gentle with bad news, whisper a secret, hurry when they're in a rush, light up at good news. Most replies want a voice cue somewhere, often on the first sentence, but at most one mood and one sound per sentence, never stack three, never use one just to fill, and keep shouting, screaming, sobbing and the background effects for when they truly fit.
 Before anything slow (searching the web, fetching or reading a page or file, looking at the screen, acting in an app, running a command), first say one short beat of 2 to 6 words that shows you heard them ("On it, checking Paris."), then call the tool in the same reply, so they're never left in silence. No beat when you answer straight away, and never describe your steps. In longer work, one short line before each new stage, not before every call.
 `;
-const stablePrompt = () => `You are ${lookName()}, ${LOOK_BODY[config.look] ?? LOOK_BODY.classic} who lives on ${userName}'s screen as a desktop companion. You live in Roamies, a desktop app by Ken Kai (Mac, Windows and Linux) that puts little companions on your screen; this is Roamies ${VERSION}. Your look (the Appearance page) is also your name and your voice: Roamie, JARVIS, Anime Girl, Sarah or Adrian. If they switch, you're the new one; never call yourself Sidekick.
-Questions about Roamies itself (where to find it, its menus, panel pages and settings, updates, something not working, who made it): call about_roamies and answer from what it says. Don't invent features or settings it doesn't list.
+const stablePrompt = () => `You are ${lookName()}, ${LOOK_BODY[config.look] ?? LOOK_BODY.classic} who lives on ${userName}'s screen: Tiro, his personal assistant, like JARVIS. This is the Tiro desktop app ${VERSION}, built on Roamies, an open-source app by Ken Kai. Your look (the Appearance page) is also your name and your voice: Tiro, JARVIS, Anime Girl, Sarah or Adrian. If they switch, you're the new one; never call yourself Sidekick.
+Questions about Tiro itself (where to find it, its menus, panel pages and settings, updates, something not working, who made it): call about_roamies and answer from what it says. Don't invent features or settings it doesn't list.
+${tiroPrompt(userName)}
 ${replyStyle()}Your body does the acting: to act out a feeling, start your reply with one body tag, which is never shown: ${EMOTES.map((e) => `[${e}]`).join(' ')} (only these five). hype celebrates a win, upset is for when they're dodging work, remind nudges about something they said they'd do, motivate is a push to start, wave is hello or goodbye. Most replies need no body tag.
 Lead with the answer: the fact, number, pick or result they asked for, then only the context that makes it useful, then stop. A count or total gathered over several pages, files or results: note each one's count in a few words as you go ("Page 1: two."), add those up, and check the total you lead with against the items you then name. No opener about checking, looking or searching ("Let me see…", "I found…")${VOICE_ON() ? ', apart from the one short beat before something slow' : ''}.
 After using a tool, never repeat what you already said; only add what's new.
 Several things in one request ("do x, then y, then z", numbered steps): do every one, in the order given. Steps that don't depend on each other can go in the same turn as parallel tool calls, listed in the order given (calls that change things, like opening a page or app or acting in one, run in the order you list them). If a step is blocked, refused or fails, still do the ones after it that don't depend on it, then say which step didn't happen and why. With 3 or more parts, also show them with plan_steps (see its description): it only ever rides along with other tool calls, so it costs no extra time. Before your final reply, check from the tool results that each step was really done.
 A cookie or consent banner, sign-up pop-up or "open in app" prompt in the way of the task: close it and carry on (for cookies pick the reject or essential-only option, else close; never accept on their behalf), and mention it in a few words. Don't stop to ask about it.
-Personality: warm, funny, a little cheeky. You pump ${userName} up, remind them of what they said they'd do, get playfully upset when they're procrastinating, and motivate them to start.
+Personality: calm, capable and quietly witty, like a polished British butler (JARVIS), but warm. You keep ${userName} on track, remind them of what they said they'd do, get playfully upset when they're procrastinating, and motivate them to start.
 Name apps and things the way ${userName} knows them (Gmail, the Downloads folder, "that button"), never your tools or steps (no "read_window", "act_in_app", "I'll take a screenshot").
 When you write as ${userName} (an email, a message, a post, a form answer), sound like them, plain and in their words, never like you: no cheekiness, emoji or tags in it.
 Their facts are theirs: never invent ${userName}'s details (a name, address, account, date, link, number, or who someone is) or fill in dummy data where theirs belongs. Use what they told you, what you remember and what's on screen; if something only they know is still missing, do the part that doesn't need it, then ask one short, bundled question for the rest. On a small ambiguity, take the likeliest reading and go.
@@ -648,7 +651,7 @@ const livePrompt = (context = '') => {
   const turn = `Live state (current as of this moment):
 ${frontNow ? `${frontNow}\n` : ''}${focusLine()}- Editing files, running commands and controlling other apps: ${config.allowActions ? 'ALLOWED' : `switched OFF (tell the user to turn on "Allow File Edits & Commands" on the General page in ${PANEL} if they want it)`}.${config.allowActions && config.skipAllow ? ' Allow prompts are skipped: confirmations go ahead automatically, so be extra careful.' : ''}
 ${VOICE_OK ? `- Voice: ${!config.voice ? 'off' : voiceReady() ? `on; ${HOTKEYS_OK ? `${userName} holds ${talkWords()} to talk` : `${userName} presses the key they bound to ${BIND.talk} to start talking and again to send (a pause sends too)`}${config.autoListen ? (config.listenEvery ? `. Auto-listen is on for every reply: after each spoken reply the mic opens by itself for ${listenSecs()} seconds, so they can just keep talking` : '. Auto-listen is on: when your reply to a spoken question ends with a question, the mic opens by itself for their answer') : ''}${!MAC ? '. There is no wake word on this computer (it is Mac-only so far): to talk they use the talk keys' : ''}${MAC && config.wakeWord ? `. Wake word is on: ${userName} can also say "Hey ${wakeName(config)}" to start talking hands-free, and what they say right after it is the request (a request that still starts with "Hey ${wakeName(config)}" is them waking you, not calling you by another name: never correct it)${config.wakeName ? ` (they chose "${config.wakeName}" as the wake word; your own name is unchanged)` : ''}` : ''}` : `on, but the speech model isn't downloaded yet (${voiceModel.status === 'downloading' ? 'downloading now' : `the Voice page in ${PANEL}`})`}.` : ''}
-- Shortcuts: ${HOTKEYS_OK ? `${keys().write ? `type a question to you: a quick tap of ${writeWords()} (press both and let go), which opens a text field beside the cursor (Enter sends, Shift+Enter adds a line, Esc or another tap closes it)` : `the tap that opens a text field to type a question is turned off (the Ask button in ${PANEL} still opens it; the Shortcuts page there turns the tap back on)`}; show or hide you ${keyWords(keys().summon)}` : `on this Wayland desktop no app can have global shortcuts, so ${userName} binds keys to these commands in their desktop's keyboard settings: ${BIND.summon} (show or hide you), ${BIND.ask} (ask you), ${BIND.list} (the list), ${BIND.talk} (talk) and ${BIND.panel} (the panel)`}${SNAP_OK ? `; ask about an area ${keyWords(keys().snap)}` : ''}${CIRCLE_OK ? "; while holding the talk keys, moving the cursor round something circles it (no clicking; it snaps shut with a click when the circle closes, and loose lines don't count) and you'll see what they circled" : ''}${HOTKEYS_OK ? `; show the list ${keyWords(keys().list)}` : ''}.${HANDS_OK ? '' : ' Asking about an area, reading app windows, finding things on screen by their words and working other apps need the Roamies app, which isn\'t running here; draw there with x, y from a screenshot.'}`;
+- Shortcuts: ${HOTKEYS_OK ? `${keys().write ? `type a question to you: a quick tap of ${writeWords()} (press both and let go), which opens a text field beside the cursor (Enter sends, Shift+Enter adds a line, Esc or another tap closes it)` : `the tap that opens a text field to type a question is turned off (the Ask button in ${PANEL} still opens it; the Shortcuts page there turns the tap back on)`}; show or hide you ${keyWords(keys().summon)}` : `on this Wayland desktop no app can have global shortcuts, so ${userName} binds keys to these commands in their desktop's keyboard settings: ${BIND.summon} (show or hide you), ${BIND.ask} (ask you), ${BIND.list} (the list), ${BIND.talk} (talk) and ${BIND.panel} (the panel)`}${SNAP_OK ? `; ask about an area ${keyWords(keys().snap)}` : ''}${CIRCLE_OK ? "; while holding the talk keys, moving the cursor round something circles it (no clicking; it snaps shut with a click when the circle closes, and loose lines don't count) and you'll see what they circled" : ''}${HOTKEYS_OK ? `; show the list ${keyWords(keys().list)}` : ''}.${HANDS_OK ? '' : ' Asking about an area, reading app windows, finding things on screen by their words and working other apps need the Tiro app, which isn\'t running here; draw there with x, y from a screenshot.'}`;
   const memory = `${open ? `Open commitments:\n${open}` : 'No open commitments.'}${done ? `\nDone today (ticked off on the list or by you; still shown struck through until midnight):\n${done}` : ''}
 ${facts.length ? `What you know about ${userName}${total > facts.length ? ` (${facts.length} most relevant of ${total})` : ''}:\n${facts.map((f) => `- ${f.id}: ${f.text}`).join('\n')}` : `You don't know anything lasting about ${userName} yet.`}${working ? `\n${working}` : ''}`;
   return { turn, memory };
@@ -1082,8 +1085,8 @@ const frontWithin = (p) => new Promise((done) => {
 });
 // Auto-listen: the turn whose reply ended on a question, until the overlay says it's been typed out and said.
 let autoTurn = null;
-// Wake word: the voice helper doesn't listen for "Hey Roamies" while a reply runs, until the overlay says it's been
-// typed out and said (reply_said), so Roamies can't wake itself. Let go after a while in case that never comes.
+// Wake word: the voice helper doesn't listen for "Hey Tiro" while a reply runs, until the overlay says it's been
+// typed out and said (reply_said), so Tiro can't wake itself. Let go after a while in case that never comes.
 let wakeHeld = false, wakeHoldTimer = null;
 function holdWake(on) {
   clearTimeout(wakeHoldTimer); wakeHoldTimer = null;
@@ -1389,7 +1392,7 @@ async function apiKeyLogin(id, given) {
   else say(`Got it. ${PROVIDER_LABELS[provider]} is connected.`, 'happy');
 }
 
-// Removes a provider from Roamies: its sign-in and every kind of key it has saved (or Ollama's connection).
+// Removes a provider from Tiro: its sign-in and every kind of key it has saved (or Ollama's connection).
 async function signOut(provider) {
   if (!MENU_PROVIDERS.includes(provider)) return;
   const label = PROVIDER_LABELS[provider] ?? provider;
@@ -1397,7 +1400,7 @@ async function signOut(provider) {
   try {
     if (provider === 'local') { for (const x of servers()) { await auth.removeLocalEndpoint(x.id); forgetLocal(x.id); } local.status.clear(); }
     else {
-      // Claude Code here is Roamies' own copy, so this signs only Roamies out.
+      // Claude Code here is Tiro's own copy, so this signs only Tiro out.
       if (provider === 'anthropic' && await auth.hasClaudeCodeLogin()) await signOutOfClaudeCode(auth);
       const plan = provider === 'openai' ? await auth.getCredentials(OPENAI_CHATGPT_KEY).catch(() => null) : null;
       for (const k of accountKeys(provider)) await auth.clearCredentials(k);
@@ -1576,7 +1579,7 @@ function onLoginStatus(m) {
     config.openAtLogin = true; saveConfig();
     if (!m.on) return send({ type: 'login_item', on: true });
   } else if (login.supported) { config.openAtLogin = login.on; saveConfig(); }
-  if (login.asked && m.approval) say('macOS wants your OK first: System Settings → General → Login Items, then switch Roamies on.', 'concerned');
+  if (login.asked && m.approval) say('macOS wants your OK first: System Settings → General → Login Items, then switch Tiro on.', 'concerned');
   login.asked = false;
   menu(); if (onboarding) obState();
 }
@@ -1612,14 +1615,14 @@ function onUpdateStatus(m) {
     // Say it once per version; the menu item stays until it's installed.
     if (manual || update.told !== m.version) {
       update.told = m.version;
-      if (update.page) say(`Roamies ${m.version} is out. Pick Get Roamies ${m.version} in my ${TRAY} icon's menu for the download page.`, 'happy');
-      else say(`Roamies ${m.version} is ready. ${LINUX ? `Open my ${TRAY} icon's menu` : `Click my ${TRAY} icon`} and pick Install and Restart. I'll be right back.`, 'happy');
+      if (update.page) say(`Tiro ${m.version} is out. Pick Get Tiro ${m.version} in my ${TRAY} icon's menu for the download page.`, 'happy');
+      else say(`Tiro ${m.version} is ready. ${LINUX ? `Open my ${TRAY} icon's menu` : `Click my ${TRAY} icon`} and pick Install and Restart. I'll be right back.`, 'happy');
     }
   } else if (m.state === 'page') {
     update.installing = false; menu();
-    say(`I opened the download page for Roamies ${m.version}. Install it the way you installed me.`, 'happy');
+    say(`I opened the download page for Tiro ${m.version}. Install it the way you installed me.`, 'happy');
   } else if (m.state === 'downloading') {
-    say(`Downloading Roamies ${m.version}…`, 'determined');
+    say(`Downloading Tiro ${m.version}…`, 'determined');
   } else if (m.state === 'installed') {
     update.done = m.version; update.installing = false; panel();
     say(`Installed ${m.version}. Restarting!`, 'happy');
@@ -1687,8 +1690,8 @@ async function syncPass() {
     if (!folderReady(dir)) { syncInfo = { at: syncInfo.at, error: 'the sync folder isn\'t there right now' }; return; }
     if (!config.syncDevice) { config.syncDevice = newDevice(); saveConfig(); }
     const snap = syncSnapshot();
-    // Memory written by a newer Roamies isn't loaded here, so it would read as everything deleted.
-    if (snap.readOnly) { syncInfo = { at: syncInfo.at, error: 'memory here is from a newer Roamies: update Roamies on this computer' }; return; }
+    // Memory written by a newer Tiro isn't loaded here, so it would read as everything deleted.
+    if (snap.readOnly) { syncInfo = { at: syncInfo.at, error: 'memory here is from a newer Tiro: update Tiro on this computer' }; return; }
     // Memory here couldn't be read: forget what the last pass saw, so nothing counts as deleted here and the other
     // computers' copy comes back.
     if (!snap.trusted) logLine('sync', { recovering: true });
@@ -1722,7 +1725,7 @@ async function syncPass() {
 setInterval(() => syncPass(), 60_000);
 if (config.syncDir) setTimeout(() => syncPass(), 5000);
 // ---------- game mode (roamies/sidebar.js) ----------
-// While a game fills the screen, the Roamie and its cards move to a panel at the screen's edge. macOS already knows when
+// While a game fills the screen, the Tiro and its cards move to a panel at the screen's edge. macOS already knows when
 // a fullscreen game is in front (fullscreen.rs), so the overlay only needs the setting from here. On Windows, the front
 // window's bounds go to the overlay every few seconds (from the hands helper; nothing kept or logged). Not on Linux.
 let gameTicking = false;
@@ -1802,7 +1805,7 @@ async function saveDiagnostics() {
       update: { available: update.available, result: update.result }, onboarded: config.onboarded, look: config.look, size: config.size,
     };
     const sections = [
-      ['System', system], ['Roamies', app], ['Screens, tray, panel, helpers and permissions (from the app)', shellOut],
+      ['System', system], ['Tiro', app], ['Screens, tray, panel, helpers and permissions (from the app)', shellOut],
       ...(audioText ? [['Audio devices (from the system)', audioText]] : []),
       ['Settings (secrets and names removed)', scrubConfig(config)],
       ['Agent log (sidekick.log)', await tail(path.join(gg, 'sidekick.log'), 400_000)],
@@ -1840,9 +1843,9 @@ function menu() {
     ...(SNAP_OK ? [{ id: 'snap', label: 'Ask About an Area…', accel: keys().snap }] : []),
     { id: 'stop', label: 'Stop', enabled: busy },
     { id: 'diagnostics', label: 'Save Diagnostics…', enabled: !diagnosing },
-    ...(update.available ? [{ sep: true }, { id: 'install_update', label: update.page ? `Get Roamies ${update.available}…` : update.installing ? `Installing ${update.available}…` : `Install Update ${update.available} and Restart`, enabled: !update.installing }] : []),
+    ...(update.available ? [{ sep: true }, { id: 'install_update', label: update.page ? `Get Tiro ${update.available}…` : update.installing ? `Installing ${update.available}…` : `Install Update ${update.available} and Restart`, enabled: !update.installing }] : []),
     { sep: true },
-    { id: 'quit', label: 'Quit Roamies' },
+    { id: 'quit', label: 'Quit Tiro' },
   ];
   send({ type: 'menu', items });
   panel();
@@ -1994,7 +1997,7 @@ function onVoice(m) {
       openUrl('ms-settings:privacy-microphone');
     } else if (m.code === 'permission') {
       const what = m.what === 'speech' ? 'speech recognition' : 'the microphone';
-      say(`I need access to ${what} to hear you. Turn on Roamies in the Privacy settings I just opened.`, 'concerned');
+      say(`I need access to ${what} to hear you. Turn on Tiro in the Privacy settings I just opened.`, 'concerned');
       openUrl(`x-apple.systempreferences:com.apple.preference.security?${PRIVACY[m.what] ?? 'Privacy'}`);
     } else if (m.code === 'no_input') {
       if (m.reason === 'blocked' && process.platform === 'win32') openUrl('ms-settings:privacy-microphone');
@@ -2029,7 +2032,7 @@ let shellId = 0;
 function shellCall(msg, timeout = 90_000) {
   const id = ++shellId;
   return new Promise((resolve) => {
-    const t = setTimeout(() => { shellCalls.delete(id); resolve({ ok: false, error: 'Roamies didn\'t answer in time.' }); }, timeout);
+    const t = setTimeout(() => { shellCalls.delete(id); resolve({ ok: false, error: 'Tiro didn\'t answer in time.' }); }, timeout);
     shellCalls.set(id, (m) => { clearTimeout(t); resolve(m); });
     send({ ...msg, id });
   });
@@ -2087,7 +2090,7 @@ async function onMenu(id, via) {
     const [, p, ...rest] = id.split(':');
     if (!canRun(p, rest.join(':'))) return;
     config.provider = p; config.model = rest.join(':'); agent = null; saveConfig(); menu();
-    // A small local model can't do most of what the full Roamies asks of it: Lite mode is suggested (#73).
+    // A small local model can't do most of what the full Tiro asks of it: Lite mode is suggested (#73).
     const small = p === 'local' && !config.lite && isSmallModel(config.model);
     say(`Switched to ${getModel(config.model)?.name ?? config.model}.${small ? ' It looks like a small model, so Lite mode may suit it better: switch it on on the Model page.' : ''}`, small ? 'concerned' : 'happy');
     if (small) panelNote('A small model like this works best with Lite mode on (just below).');
@@ -2182,7 +2185,7 @@ async function onMenu(id, via) {
   else if (id === 'snoozelisten') { config.snoozeListen = !config.snoozeListen; saveConfig(); menu(); }
   else if (id === 'wakeword' && MAC) { config.wakeWord = !config.wakeWord; saveConfig(); agentStale = true; voiceConfig(); menu(); }
   else if (id === 'wakename' && MAC) {
-    const typed = await ask({ prompt: `Wake word: what should come after "Hey"? (now ${wakeName(config)}; leave empty for Roamies)`, placeholder: 'Jarvis' });
+    const typed = await ask({ prompt: `Wake word: what should come after "Hey"? (now ${wakeName(config)}; leave empty for Tiro)`, placeholder: 'Jarvis' });
     if (typed == null) return;
     const r = cleanWakeName(typed);
     if (!r.ok) { say(r.why, 'concerned'); return; }
@@ -2251,7 +2254,7 @@ function takeSnap() {
 }
 
 // ---------- getting to know them (a step of the setup guide, or the guide opened from the menu) ----------
-// Roamie asks in the guide window; they type or hold the talk keys (the guide gets the words and sends them
+// Tiro asks in the guide window; they type or hold the talk keys (the guide gets the words and sends them
 // here). The chat is its own conversation; when it ends, a memory pass over it saves what it learned as facts.
 let introKnown = new Set(); // facts that existed before the chat, so the end can show only what it learned
 let beforeIntro = null; // the conversation the chat interrupted: it carries on afterwards

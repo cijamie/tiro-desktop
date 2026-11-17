@@ -255,7 +255,7 @@
   // Realistic eyes: shaded sclera, striated iris, lids made of body material, cheek squint, fixed catchlights.
   R.drawEyesPro = (ctx, f, x, y, size, o = {}) => {
     const gap = o.gap ?? size * 1.2;
-    const lid = o.lid ?? '#2fbf93';
+    const lid = o.lid ?? '#b4673a';
     const lash = o.lash ?? 'rgba(0,0,0,0.6)';
     const [iIn, iMid, iOut] = o.iris ?? ['#fff3c4', '#f2a531', '#5a2400'];
     const tilt = o.tilt ?? 0;
@@ -357,7 +357,7 @@
 
   // Refined mouth: nothing at rest, a shaded open smile, a small "o", or a wavy dizzy line.
   R.drawMouthPro = (ctx, f, x, y, w, o = {}) => {
-    const ink = o.ink ?? '#06261f', inner = o.inner ?? '#2a0a12', tongue = o.tongue;
+    const ink = o.ink ?? '#241208', inner = o.inner ?? '#2a0a12', tongue = o.tongue;
     ctx.save();
     ctx.translate(x, y);
     ctx.lineCap = 'round';
@@ -403,7 +403,7 @@
 
   // Glowing visor-style eyes: light shapes that morph per expression.
   R.drawVisorEyes = (ctx, f, x, y, size, o = {}) => {
-    const gap = o.gap ?? size * 1.3, col = o.color ?? '#7ff3ff', core = o.core ?? '#f2feff';
+    const gap = o.gap ?? size * 1.3, col = o.color ?? '#f5b089', core = o.core ?? '#fef7f3';
     ctx.save();
     ctx.translate(x, y);
     if (o.angle) ctx.rotate(o.angle);

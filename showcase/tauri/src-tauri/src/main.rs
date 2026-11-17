@@ -82,7 +82,7 @@ static TYPING: AtomicBool = AtomicBool::new(false);
 static INK_WAIT: AtomicBool = AtomicBool::new(false);
 /// The type-to-ask pair as tap.rs bits (0: none, as on Wayland): a quick tap of it opens the text field by the cursor.
 static WRITE_CHORD: AtomicU8 = AtomicU8::new(0);
-/// The cursor is over something clickable in an overlay (a card, its buttons): a click there is on Roamies, not the app below.
+/// The cursor is over something clickable in an overlay (a card, its buttons): a click there is on Tiro, not the app below.
 pub(crate) static OVERLAY_HOT: AtomicBool = AtomicBool::new(false);
 
 fn is_overlay(label: &str) -> bool {
@@ -235,7 +235,7 @@ fn other_input_down() -> bool {
     false
 }
 
-/// Windows: leaves an overlay out of every capture, so Roamies never shows up in its own screenshots, area snaps
+/// Windows: leaves an overlay out of every capture, so Tiro never shows up in its own screenshots, area snaps
 /// or the pictures it reads text from.
 #[cfg(target_os = "windows")]
 fn exclude_from_capture(w: &WebviewWindow) {
@@ -343,7 +343,7 @@ fn set_typing(app: AppHandle, window: WebviewWindow, on: bool) {
         if !linux::unmanaged_overlay() {
             linux::activate(&window);
         }
-        // Opened from a hotkey (e.g. after an area snap), Roamies isn't the active app and macOS 14+
+        // Opened from a hotkey (e.g. after an area snap), Tiro isn't the active app and macOS 14+
         // ignores plain focus requests, so make the overlay key directly, then ask to activate.
         #[cfg(target_os = "macos")]
         if let Ok(p) = window.ns_window() {
@@ -481,7 +481,7 @@ async fn perm_request(kind: String) -> Value {
 #[tauri::command]
 fn open_settings(pane: String) {
     const PANES: [&str; 6] = ["Privacy_Microphone", "Privacy_SpeechRecognition", "Privacy_ScreenCapture", "Privacy_FilesAndFolders", "Privacy_AllFiles", "Privacy_Accessibility"];
-    // explorer hands ms-settings: links to the Settings app. Taskbar: where Roamies' tray icon is switched on.
+    // explorer hands ms-settings: links to the Settings app. Taskbar: where Tiro's tray icon is switched on.
     if cfg!(windows) && (pane == "privacy-microphone" || pane == "taskbar") {
         let _ = hide_console(&mut Command::new("explorer")).arg(format!("ms-settings:{pane}")).spawn();
         return;
@@ -514,7 +514,7 @@ async fn screen_check() -> Value {
 }
 
 /// Shows the hands helper's panel under System Settings for one Privacy pane ("accessibility" or
-/// "screen"): Roamies' icon to drag into the list, in case macOS left it out. Any other kind just
+/// "screen"): Tiro's icon to drag into the list, in case macOS left it out. Any other kind just
 /// closes it. The helper waits for Settings to open and leaves once its stdin (held here) closes.
 #[tauri::command]
 fn perm_guide(app: AppHandle, kind: Option<String>) {
@@ -740,7 +740,7 @@ fn show_panel(app: &AppHandle, rect: Option<tauri::Rect>, toggle: bool) {
         Some(w) => w,
         None => {
             let b = WebviewWindowBuilder::new(app, PANEL_LABEL, WebviewUrl::App("panel/index.html".into()))
-                .title("Roamies")
+                .title("Tiro")
                 .inner_size(PANEL_W, PANEL_H)
                 .resizable(false)
                 .maximizable(false)
@@ -869,7 +869,7 @@ fn set_panel_position(w: &WebviewWindow, x: f64, y: f64, _s: f64) {
 
 // ---------- setup guide window ----------
 
-/// While the setup guide is open Roamies is a normal app (Dock icon, ⌘Tab), so it's easy to get
+/// While the setup guide is open Tiro is a normal app (Dock icon, ⌘Tab), so it's easy to get
 /// back to after a trip to System Settings. Otherwise it lives only in the menu bar.
 fn set_dock(app: &AppHandle, visible: bool) {
     #[cfg(target_os = "macos")]
@@ -898,7 +898,7 @@ fn open_onboarding(app: &AppHandle, mode: Option<&str>) {
     }
     let url = if chat { "onboarding/index.html?mode=chat" } else { "onboarding/index.html" };
     let mut b = WebviewWindowBuilder::new(app, ONBOARDING_LABEL, WebviewUrl::App(url.into()))
-        .title(if chat { "Get to know you" } else { "Welcome to Roamies" })
+        .title(if chat { "Get to know you" } else { "Welcome to Tiro" })
         .inner_size(780.0, 540.0)
         .resizable(false)
         .maximizable(false)
@@ -1090,7 +1090,7 @@ fn build_overlays(app: &AppHandle) -> tauri::Result<()> {
         #[cfg(not(target_os = "linux"))]
         let unmanaged = false;
         let w = WebviewWindowBuilder::new(app, label, WebviewUrl::App("desktop.html".into()))
-            .title("Roamies")
+            .title("Tiro")
             .visible(!unmanaged)
             .transparent(true)
             .decorations(false)
@@ -1356,7 +1356,7 @@ fn screens(monitors: &[tauri::Monitor]) -> Vec<Screen> {
     monitors.iter().map(|m| Screen { pos: (m.position().x, m.position().y), size: (m.size().width, m.size().height), scale: m.scale_factor() }).collect()
 }
 
-/// Why the overlays need building again, or None. `have` overlays are open and `roster` Roamies want one each, at
+/// Why the overlays need building again, or None. `have` overlays are open and `roster` Tiro want one each, at
 /// most one per screen. Never with no screens: while the only display sleeps macOS lists none (it lists active
 /// displays), and the overlays already made are kept for when it wakes.
 fn overlays_stale(built: &[Screen], now: &[Screen], have: usize, roster: usize) -> Option<&'static str> {
@@ -1372,7 +1372,7 @@ fn overlays_stale(built: &[Screen], now: &[Screen], have: usize, roster: usize) 
 }
 
 /// The overlays were built at launch and when the roster changed, and never again. Started while the only display
-/// slept, Roamies listed no screens, built no overlay and never showed the Roamie (it still talked); a screen plugged
+/// slept, Tiro listed no screens, built no overlay and never showed the Roamie (it still talked); a screen plugged
 /// in or taken away later wasn't followed either. So every 3 s, on the main thread, they're built again when one is
 /// missing or the screens changed.
 fn watch_screens(app: AppHandle) {
@@ -1547,8 +1547,8 @@ fn fallback_menu(app: &AppHandle, status: &str) {
     set_menu(app, &[
         json!({ "id": "status", "label": status, "enabled": false }),
         json!({ "sep": true }),
-        json!({ "id": "restart", "label": "Restart Roamies" }),
-        json!({ "id": "quit", "label": "Quit Roamies" }),
+        json!({ "id": "restart", "label": "Restart Tiro" }),
+        json!({ "id": "quit", "label": "Quit Tiro" }),
     ]);
 }
 
@@ -1622,11 +1622,11 @@ fn login_item(app: &AppHandle, set: Option<bool>) {
             (false, false, false)
         } else {
             match set {
-                Some(true) => { let v = format!("\"{}\"", exe.display()); reg(&["add", KEY, "/v", "Roamies", "/t", "REG_SZ", "/d", &v, "/f"]); }
-                Some(false) => { reg(&["delete", KEY, "/v", "Roamies", "/f"]); }
+                Some(true) => { let v = format!("\"{}\"", exe.display()); reg(&["add", KEY, "/v", "Tiro", "/t", "REG_SZ", "/d", &v, "/f"]); }
+                Some(false) => { reg(&["delete", KEY, "/v", "Tiro", "/f"]); }
                 None => {}
             }
-            (true, reg(&["query", KEY, "/v", "Roamies"]), false)
+            (true, reg(&["query", KEY, "/v", "Tiro"]), false)
         }
     };
     #[cfg(target_os = "linux")]
@@ -1764,7 +1764,7 @@ fn handle_sidecar(app: &AppHandle, msg: Value) {
         }
         // `roamies --talk` (Linux): start a take, or send the one under way.
         Some("talk_toggle") => to_voice(app, &json!({ "cmd": "toggle" })),
-        // Roamies is answering or speaking: the wake word waits, so it can't wake itself.
+        // Tiro is answering or speaking: the wake word waits, so it can't wake itself.
         Some("wake_hold") => to_voice(app, &json!({ "cmd": "wake_hold", "on": msg.get("on").and_then(Value::as_bool) == Some(true) })),
         // Esc while it's listening: drop the take.
         Some("listen_cancel") => to_voice(app, &json!({ "cmd": "cancel" })),
@@ -1821,7 +1821,7 @@ fn cli_action(args: &[String]) -> Option<&'static str> {
 
 /// A second launch quit and handed its arguments over (the single-instance plugin). A plain one summons the
 /// Roamie and, on Windows and Linux, opens the panel: Windows 11 hides a new tray icon behind the ^ arrow and many
-/// Linux desktops show none, so opening Roamies again from the Start menu or the app list is the way in.
+/// Linux desktops show none, so opening Tiro again from the Start menu or the app list is the way in.
 fn second_launch(app: &AppHandle, args: &[String]) {
     match cli_action(args) {
         Some("summon") => to_overlays(app, &json!({ "kind": "summon" })),
@@ -1867,12 +1867,12 @@ fn main() {
                 app.set_menu(Menu::default(app.handle())?)?;
             }
 
-            let starting = MenuItem::with_id(app, "status", "Starting Roamies…", false, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit Roamies", true, None::<&str>)?;
+            let starting = MenuItem::with_id(app, "status", "Starting Tiro…", false, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit Tiro", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&starting, &quit])?;
             // Left click opens the panel; right click shows the short menu.
             let mut tray = TrayIconBuilder::with_id("roamies")
-                .tooltip("Roamies")
+                .tooltip("Tiro")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, e| {
@@ -1910,7 +1910,7 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("failed to run Roamies")
+        .expect("failed to run Tiro")
         .run(|_, e| {
             if matches!(e, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
                 sidecar::QUITTING.store(true, Ordering::SeqCst);
@@ -1953,12 +1953,12 @@ mod tests {
         assert!(overlays_stale(&one, &[s(100, 1920)], 1, 1).is_some(), "moved in the arrangement");
         assert!(overlays_stale(&one, &[Screen { scale: 1.0, ..s(0, 1920) }], 1, 1).is_some(), "scale changed");
         assert_eq!(overlays_stale(&two, &two, 1, 1), None, "two screens and one Roamie: one overlay is all there is");
-        assert!(overlays_stale(&two, &two, 1, 2).is_some(), "two Roamies on two screens and one overlay: build");
+        assert!(overlays_stale(&two, &two, 1, 2).is_some(), "two Tiro on two screens and one overlay: build");
         // build_overlays puts every Roamie on one screen's overlay when there's one screen: counting one overlay per
         // Roamie there would rebuild every 3 s, forever.
-        assert_eq!(overlays_stale(&one, &one, 1, 2), None, "two Roamies on one screen: one overlay holds both");
-        assert!(overlays_stale(&one, &one, 0, 2).is_some(), "two Roamies on one screen and no overlay: build");
-        assert_eq!(overlays_stale(&one, &one, 0, 0), None, "no Roamies: no overlay is missing");
+        assert_eq!(overlays_stale(&one, &one, 1, 2), None, "two Tiro on one screen: one overlay holds both");
+        assert!(overlays_stale(&one, &one, 0, 2).is_some(), "two Tiro on one screen and no overlay: build");
+        assert_eq!(overlays_stale(&one, &one, 0, 0), None, "no Tiro: no overlay is missing");
     }
 
     #[test]

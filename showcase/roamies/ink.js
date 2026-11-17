@@ -9,10 +9,10 @@
 
   // ---------------------------------------------------------------- look
   const P = 4, MONO = '"Martian Mono", ui-monospace, monospace', DOTO = '"Doto", "Martian Mono", ui-monospace, monospace';
-  const ACC = '#78ffe2', HOT = '#e6fffa', MID = '#28c4b8', DEEP = '#0e5c60', EDGE = 'rgba(3,39,34,0.6)';
-  const GLASS = 'rgba(6,22,24,0.94)', TEXT = '#dcfff6', DIM = '#8ab8b0', INKDARK = '#032722';
-  const TONES = { accent: ACC, teal: '#78ffe2', amber: '#ffcf5c', coral: '#ff8a7a', lilac: '#b9a4ff', sky: '#7cc8ff', lime: '#b6f36b', red: '#ff6b6b', white: '#e8fffa' };
-  const LED = ['#051214', '#0e5c60', '#28c4b8', '#78ffe2', '#e6fffa'];
+  const ACC = '#f5ac82', HOT = '#fdf0e8', MID = '#b86434', DEEP = '#5a2e14', EDGE = 'rgba(36, 17, 6, 0.6)';
+  const GLASS = 'rgba(23, 13, 7, 0.94)', TEXT = '#fceadf', DIM = '#b59c8d', INKDARK = '#241106';
+  const TONES = { accent: ACC, teal: '#78ffe2', amber: '#ffcf5c', coral: '#ff8a7a', lilac: '#b9a4ff', sky: '#7cc8ff', lime: '#b6f36b', red: '#ff6b6b', white: '#fdf1ea' };
+  const LED = ['#130b06', '#5a2e14', '#b86434', '#f5ac82', '#fdf0e8'];
   const B4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const tone = (t) => TONES[t] || ACC;
   const now = () => performance.now() / 1000;
@@ -336,7 +336,7 @@
     if (o.down) b.translate(0, 2);
     b.fillStyle = mixHex(fill, '#000000', 0.62); b.fill(steppedPath(x, y + (o.down ? 1 : 3), w, h, P));
     b.fillStyle = o.hover ? mixHex(fill, '#ffffff', 0.3) : fill; b.fill(steppedPath(x, y, w, h, P));
-    b.fillStyle = 'rgba(255,255,255,0.55)'; b.fillRect(x + P, y + 1, w - 2 * P, 1.5); b.fillStyle = 'rgba(3,39,34,0.25)'; b.fillRect(x + P, y + h - 2.5, w - 2 * P, 1.5);
+    b.fillStyle = 'rgba(255,255,255,0.55)'; b.fillRect(x + P, y + 1, w - 2 * P, 1.5); b.fillStyle = 'rgba(36, 17, 6, 0.25)'; b.fillRect(x + P, y + h - 2.5, w - 2 * P, 1.5);
     typed(b, str, cx, cy, CHIP(k), INKDARK, type, { anchor: 'middle', baseline: 'middle', land: false });
     b.restore();
   }
@@ -649,7 +649,7 @@
         chrome(b, x, y, this.cw, this.ch, { edge: o.edge ? colorOf(this, this.color) : ACC });
         if (this.p < 1) return;
         if (bar) {
-          b.fillStyle = 'rgba(120,255,226,0.06)'; b.fillRect(x + 2, y + 2, w - 4, bar - 2);
+          b.fillStyle = 'rgba(245, 172, 130, 0.06)'; b.fillRect(x + 2, y + 2, w - 4, bar - 2);
           b.fillStyle = DEEP; b.fillRect(x + 2, y + bar, w - 4, 1);
           [0, 1].forEach((k) => { b.fillStyle = k ? DEEP : ACC; b.fillRect(x + 12 + k * 12, y + 11, 5, 5); });
           if (o.title) typed(b, ellipsize(String(o.title).toLowerCase(), w - 206, `500 10px ${MONO}`), x + w / 2, y + 17, `500 10px ${MONO}`, DIM, (t - this.done) / 0.4, { anchor: 'middle' });
@@ -913,7 +913,7 @@
       const c = await card(m, w, h, function (b, l, t, x, y, age) {
         const u = clamp(age / 1, 0, 1);
         if (ready) for (const [gx, gy, v] of cells) { if ((B4[(gy % 4) * 4 + (gx % 4)] + 0.5) / 16 > u * 1.05) continue; b.fillStyle = LED[v]; b.fillRect(x + ix + gx * 3, y + 12 + gy * 3, 3, 3); }
-        else { b.fillStyle = 'rgba(14,92,96,0.25)'; b.fillRect(x + ix, y + 12, pw, ph); typed(b, 'no picture found', x + w / 2, y + 12 + ph / 2, SMALL, DIM, 1, { anchor: 'middle' }); }
+        else { b.fillStyle = 'rgba(90, 46, 20, 0.25)'; b.fillRect(x + ix, y + 12, pw, ph); typed(b, 'no picture found', x + w / 2, y + 12 + ph / 2, SMALL, DIM, 1, { anchor: 'middle' }); }
         capRows.forEach((r, i) => typed(b, r, x + w / 2, y + capY + i * capLh, CAPF, TEXT, (age - 0.6 - i * 0.15) / 0.5, { anchor: 'middle' }));
         credRows.forEach((r, i) => typed(b, r, x + w / 2, y + credY + i * 14, `400 10px ${MONO}`, DIM, (age - 0.8) / 0.4, { anchor: 'middle' }));
         named.forEach((q, i) => {
@@ -1243,7 +1243,7 @@
         const u = reduced() ? 1 : ease(clamp(a / 0.5, 0, 1)), full = Math.max(2, (q.value / top) * track), bw = Math.max(2, full * u), col = tone(q.tone);
         if (u < 1) touch(0.1);
         b.fillStyle = col; b.fillRect(x + x0, mid - BH / 2, bw, BH);
-        b.fillStyle = 'rgba(255,255,255,0.45)'; b.fillRect(x + x0, mid - BH / 2, bw, 1.5); b.fillStyle = 'rgba(3,39,34,0.3)'; b.fillRect(x + x0, mid + BH / 2 - 1.5, bw, 1.5);
+        b.fillStyle = 'rgba(255,255,255,0.45)'; b.fillRect(x + x0, mid - BH / 2, bw, 1.5); b.fillStyle = 'rgba(36, 17, 6, 0.3)'; b.fillRect(x + x0, mid + BH / 2 - 1.5, bw, 1.5);
         if (u >= 1) typed(b, vals[i], x + x0 + full + 8, mid + 4, TD1, TEXT, (a - 0.5) / 0.25);
       });
     }, { title: m.title || 'bars' });
@@ -1789,7 +1789,7 @@
     let hover = false, down = 0, br = null;
     const c = await card(m, w, h, function (b, l, t, x, y, age) {
       // a ticket: notches on both sides, a dashed tear line, a big number
-      b.fillStyle = 'rgba(3,14,16,1)'; for (const sx of [x - 1, x + w - 9]) b.fillRect(sx, y + 36 + off, 10, 10);
+      b.fillStyle = 'rgba(15, 8, 4, 1)'; for (const sx of [x - 1, x + w - 9]) b.fillRect(sx, y + 36 + off, 10, 10);
       b.fillStyle = DEEP; for (let dx = x + 14; dx < x + w - 14; dx += 8) b.fillRect(dx, y + 41 + off, 4, 1);
       titles.forEach((r, i) => typed(b, r, x + 18, y + 26 + i * 22, TF, TEXT, (age - i * 0.2) / 0.4));
       if (m.n != null) typed(b, String(m.n).padStart(2, '0'), x + w - 18, y + 26, `800 18px ${DOTO}`, MID, 1, { anchor: 'end' });
@@ -2071,7 +2071,7 @@
     if (cw < 4) return;
     chrome(b, x, y, cw, ch);
     if (!this.ready) return;
-    b.fillStyle = 'rgba(120,255,226,0.06)'; b.fillRect(x + 2, y + 2, w - 4, 24);
+    b.fillStyle = 'rgba(245, 172, 130, 0.06)'; b.fillRect(x + 2, y + 2, w - 4, 24);
     b.fillStyle = DEEP; b.fillRect(x + 2, y + 26, w - 4, 1);
     [0, 1].forEach((k) => { b.fillStyle = k ? DEEP : ACC; b.fillRect(x + 12 + k * 12, y + 11, 5, 5); });
     typed(b, 'reminders', x + w / 2, y + 17, `500 10px ${MONO}`, DIM, (t - this.opened) / 0.4, { anchor: 'middle' });

@@ -14,6 +14,7 @@ import { plain } from './intro.mjs';
 import { linuxSession, seesPointer } from './platform.mjs';
 import { addCommitment, forgetFact, getCommitment, parseDue, parseRepeat, repeatLabel, updateCommitment } from './store.mjs';
 import { snoozeTarget, snoozeUntil } from './snooze.mjs';
+import { createTiroTools } from './tiro.mjs';
 
 const HOME = os.homedir();
 export const expand = (p) => path.resolve(String(p).replace(/^~(?=$|\/|\\)/, HOME));
@@ -1044,6 +1045,9 @@ A drawing stays until the user clears it or the window changes; your next drawin
       execute: async () => focus.stop(),
     }] : []),
   ];
+
+  // Tiro: the server's tools (tiro.mjs), and the highlighted text in the app in front.
+  tools.push(...createTiroTools({ userName, front: () => frontNow() }));
 
   // What's in front, for the live state. Quick and never fails: '' if the helper is missing, slow or denied.
   async function whereNow() {
