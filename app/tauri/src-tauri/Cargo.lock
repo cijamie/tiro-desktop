@@ -1377,9 +1377,9 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "global-hotkey"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adda8c76a5139df3bae0eb0413c2cd746f66594e0bb66231a4daa0be3172da70"
+checksum = "96daa86bdc1413406daee362a835e52c430c2193e5a5c328d1e522be140d1764"
 dependencies = [
  "crossbeam-channel",
  "keyboard-types",
@@ -2948,23 +2948,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tiro"
-version = "0.1.41"
-dependencies = [
- "global-hotkey",
- "gtk",
- "objc2",
- "objc2-service-management",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "x11rb",
- "zbus",
-]
-
-[[package]]
 name = "rustc-hash"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4082,6 +4065,23 @@ name = "tinyvec"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
+
+[[package]]
+name = "tiro"
+version = "0.1.41"
+dependencies = [
+ "global-hotkey",
+ "gtk",
+ "objc2",
+ "objc2-service-management",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "x11rb",
+ "zbus",
+]
 
 [[package]]
 name = "tokio"
