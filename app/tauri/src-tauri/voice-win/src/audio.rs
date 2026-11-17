@@ -288,10 +288,6 @@ pub fn open_mic(mut sink: Sink) -> Result<Source, MicError> {
     Ok(Source { _stream: Some(stream), stop: Arc::new(AtomicBool::new(false)) })
 }
 
- MicError> {
-    Err(MicError::new("failed", "the microphone is only wired up on Windows and Linux (use --test-audio)"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

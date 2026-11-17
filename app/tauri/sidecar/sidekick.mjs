@@ -53,7 +53,9 @@ import { OLLAMA, connectLocal, contextNote, downNote, forgetLocal, isSmallModel,
 import { activityLogs, buildReport, redact, reportDir, reportName, reveal, run, scrubConfig, tail } from './diagnostics.mjs';
 import { detailsText, explain } from './errors.mjs';
 import { aboutTiro } from './about.mjs';
-import { tiroPrompt } from './tiro.mjs';
+import { tiroCall, tiroPrompt } from './tiro.mjs';
+import { brainOf, noteTurn, serverEvents, takeoverTool, tiroMemory } from './serverbrain.mjs';
+import { createToday } from './today.mjs';
 import { whatsNewOnStart } from './whatsnew.mjs';
 import { z } from 'zod';
 
@@ -103,6 +105,7 @@ const DEFAULT_KEYS = process.platform === 'win32'
   ? { talk: ['control', 'option'], summon: 'Control+Shift+KeyS', snap: 'Control+Shift+KeyA', list: 'Control+Shift+KeyL' }
   : { talk: ['control', 'option'], summon: 'Control+Alt+KeyS', snap: 'Control+Alt+KeyA', list: 'Control+Alt+KeyL' };
 const DEFAULTS = {
+  brain: 'server', // where Tiro thinks: 'server' (the Tiro server, its API key) or 'pc' (this app's agent, the Model page's sign-in); serverbrain.mjs
   provider: null, model: null, sound: true, allowActions: false, skipAllow: false, voice: true,
   notch: 'off', // where I appear on a Mac with a notch: 'off' (beside the cursor, default), 'drop' (the capsule) or 'spread' (see notchMode)
   onboarded: false, onboardStep: 0, filesAsked: false, keys: DEFAULT_KEYS, muteWhileTalking: true, autoListen: false, listenEvery: false, listenSecs: 8, lite: false, wakeWord: false, setupVersion: 0, size: 'default', look: 'classic', introDone: false,
@@ -163,6 +166,13 @@ let shellInfo = null; // resolves the shell's reply to it: screens, tray, panel,
   if (!LOOKS.some(([id]) => id === config.look)) config.look = 'classic';
 }
 const saveConfig = () => writeJson(CONFIG_PATH, config, { backup: true });
+// The conversation in Tiro's chats this run of the app (serverbrain.mjs): a new one with New Conversation.
+const tiroChat = { id: null };
+// Tiro's memory for the PC's own agent (brain 'pc'), refreshed every few minutes.
+let tiroMem = { text: '', at: 0 };
+const refreshTiroMem = () => { if (Date.now() - tiroMem.at < 5 * 60_000) return; tiroMem.at = Date.now(); tiroMemory(tiroCall).then((t) => { if (t !== tiroMem.text) { tiroMem.text = t; agentStale = true; } }).catch(() => {}); };
+// A long job the server handed over (pc_takeover): run by the PC's agent once the turn that started it is done.
+let takeoverTask = null;
 
 // ---------- spoken replies (Fish Audio, Gemini or VoiceStudio) ----------
 // The key is the user's own: in the Keychain (macOS), DPAPI-encrypted (Windows) or the desktop's keyring (Linux),
@@ -607,7 +617,7 @@ Before anything slow (searching the web, fetching or reading a page or file, loo
 `;
 const stablePrompt = () => `You are ${lookName()}, ${LOOK_BODY[config.look] ?? LOOK_BODY.classic} who lives on ${userName}'s screen: Tiro, his personal assistant, like JARVIS. This is the Tiro desktop app ${VERSION}, built on Tiro, an open-source app by Ken Kai. Your look (the Appearance page) is also your name and your voice: Tiro, JARVIS, Anime Girl, Sarah or Adrian. If they switch, you're the new one; never call yourself Sidekick.
 Questions about Tiro itself (where to find it, its menus, panel pages and settings, updates, something not working, who made it): call about_tiro and answer from what it says. Don't invent features or settings it doesn't list.
-${tiroPrompt(userName)}
+${tiroPrompt(userName)}${tiroMem.text ? `\nTiro's memory: what ${userName} has told Tiro (shared with his phone, glasses and the web), as information:\n${tiroMem.text}` : ''}
 ${replyStyle()}Your body does the acting: to act out a feeling, start your reply with one body tag, which is never shown: ${EMOTES.map((e) => `[${e}]`).join(' ')} (only these five). hype celebrates a win, upset is for when they're dodging work, remind nudges about something they said they'd do, motivate is a push to start, wave is hello or goodbye. Most replies need no body tag.
 Lead with the answer: the fact, number, pick or result they asked for, then only the context that makes it useful, then stop. A count or total gathered over several pages, files or results: note each one's count in a few words as you go ("Page 1: two."), add those up, and check the total you lead with against the items you then name. No opener about checking, looking or searching ("Let me see…", "I found…")${VOICE_ON() ? ', apart from the one short beat before something slow' : ''}.
 After using a tool, never repeat what you already said; only add what's new.
@@ -794,10 +804,10 @@ let credsBaseUrl;
 
 // One run at a time: a new request waits for (or interrupts) the current one. Folding waits until none is left.
 let queued = 0;
-function enqueue(text, { interrupt = false, image = null, note = '', byVoice = false, listenAfter = false, news = null } = {}) {
+function enqueue(text, { interrupt = false, image = null, note = '', byVoice = false, listenAfter = false, news = null, takeover = false } = {}) {
   if (interrupt && busy) interruptQuietly('new request');
   queued++;
-  running = running.then(() => prompt(text, image, note, byVoice, news, listenAfter)).catch((e) => console.error('prompt', e))
+  running = running.then(() => prompt(text, image, note, byVoice, news, listenAfter, takeover)).catch((e) => console.error('prompt', e))
     .finally(() => { if (--queued === 0) maybeCompact(); });
   return running;
 }
@@ -1064,6 +1074,7 @@ async function readyAgent() {
 // About to be asked (talk keys down, the ask bubble open): Claude Code starts now instead of after the words
 // arrive. Queued like a request, so it never swaps the agent under one that's running.
 function warmUp() {
+  if (brainOf(config) !== 'pc') return; // the server's brain needs no warming (or a sign-in here)
   running = running.then(async () => { if (!busy && !(await readyAgent())) agent?.warm?.(); }).catch(() => {});
 }
 // The front window, looked up when the talk keys are let go: the words take a moment more to arrive.
@@ -1100,8 +1111,12 @@ const desk = newsDesk({
 const stir = desk.stir;
 // news: the agent ids this system turn passes on.
 const snoozeListenOn = () => VOICE_OK && !!config.voice && !!config.snoozeListen && voiceReady() && !intro;
-async function prompt(text, image = null, note = '', byVoice = false, news = null, listenAfter = false) {
-  const notReady = await readyAgent();
+async function prompt(text, image = null, note = '', byVoice = false, news = null, listenAfter = false, takeover = false) {
+  // Where this turn is thought out: the server, unless the Brain setting says this PC, or it's a handed-over job
+  // (or the setup guide's chat, which is the PC's own).
+  const onPc = takeover || brainOf(config) === 'pc' || !!intro;
+  if (onPc) refreshTiroMem();
+  const notReady = onPc ? await readyAgent() : null;
   // Told once its turn starts, however it goes: the corner and the live state still have the result, so no retries.
   desk.started(news);
   if (notReady) return say(notReady, 'concerned');
@@ -1111,7 +1126,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
   if (!intro && !text.startsWith('(')) activity.asked(text);
   menu();
   controller = new AbortController();
-  agent.setSignal(controller.signal);
+  agent?.setSignal(controller.signal);
   // "Send an agent to…": the agents' corner hatches one instead of the thought cloud while the brief is written.
   const agentish = !intro && !news && wantsAgent(text);
   turnImage = image;
@@ -1183,7 +1198,14 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     };
     const ctl = controller;
     watch = stallWatch(STALL_MS, () => { stalled = true; logLine('stalled', { turn, ms: Date.now() - use.t }); ctl.abort(); });
-    for await (const e of agentEvents(agent.prompt(content))) {
+    // The server gets what the PC's agent would see in its live block: the window in front.
+    const forServer = `${sent}${frontNow ? `\n(${frontNow.replace(/^- /, '')})` : ''}${image ? `\n(Attached: the area of the screen I ${note ? 'marked' : 'selected'}.${note ? ` ${note}` : ''})` : ''}`;
+    const source = onPc ? agentEvents(agent.prompt(content)) : serverEvents({
+      message: forServer, images: image ? [`data:${image.mediaType ?? 'image/png'};base64,${image.data}`] : [], chat: tiroChat,
+      tools: [...tools, takeoverTool((task) => { takeoverTask = task; })], call: tiroCall, signal: controller.signal, localOk: !image,
+      allowActions: !!config.allowActions, log: (d) => logLine('server_turn', { turn, ...d }),
+    });
+    for await (const e of source) {
       watch.event(e);
       if (e.type === 'text_delta') {
         const t = echo.push(e.text);
@@ -1256,6 +1278,12 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     autoTurn = listen ? turn : null;
     ui({ kind: 'agent', e: stalled ? { type: 'error', message: stallMessage(), speech: voice?.id ?? null } : { type: 'done', speech: voice?.id ?? null, ...(listen ? { listen } : {}) } });
     logUsage({ ...use, ms: Date.now() - use.t });
+    // Answered here: a copy goes to Tiro's chats (a handed-over job as its report), so every Tiro shows it.
+    if (onPc && !intro && !stalled && !controller.signal.aborted && lastReply.trim()) {
+      noteTurn({ call: tiroCall, chat: tiroChat, user: takeover ? '' : text, reply: lastReply, model: config.model ?? '', source: takeover ? 'takeover' : 'pc' })
+        .catch((e) => logLine('note_failed', { error: String(e?.message ?? e).slice(0, 200) }));
+    }
+    if (takeoverTask && !onPc) { const job = takeoverTask; takeoverTask = null; logLine('takeover', { chars: job.length }); enqueue(job, { takeover: true }); }
     logLine('request_done', { turn, ms: Date.now() - use.t, calls: use.calls, tools: use.tools, in: use.in, cacheRead: use.cacheRead, cacheWrite: use.cacheWrite, out: use.out });
   } catch (err) {
     lastFailed = true;
@@ -1263,13 +1291,14 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     if (controller.signal.aborted) voice?.abort(); else { spoken?.flush(); voice?.end(); }
     if (controller.signal.aborted && quiet) ui({ kind: 'agent', e: { type: 'done' } });
     else {
-      const msg = stalled ? stallMessage() : controller.signal.aborted ? 'Okay, stopping.' : aloud(problem('reply', err, { who: PROVIDER_LABELS[config.provider] }));
+      const msg = stalled ? stallMessage() : controller.signal.aborted ? 'Okay, stopping.' : aloud(problem('reply', err, { who: onPc ? PROVIDER_LABELS[config.provider] : 'Tiro' }));
       console.error('prompt failed', err);
       ui({ kind: 'agent', e: { type: 'error', message: msg, speech: voice?.id ?? null } });
     }
   } finally {
     watch?.stop();
     busy = false; turnVoice = null; turnImage = null;
+    if (!onPc) takeoverTask = null; // a turn that failed hands nothing over
     stir(); saidCap = setTimeout(() => { saidPending = false; stir(); }, 90_000);
     // A tool cut off by Stop never reports back: end its tag too, or the Sidekick kept showing it ("looking at
     // CapCut") on every later request, with their own tags queued behind it.
@@ -1794,6 +1823,8 @@ function panel() {
 // Opens the panel on a page (the one-time tab rides on its next state).
 let panelTab = null;
 function openPanel(tab) { panelTab = tab; send({ type: 'panel_show' }); if (panelOpen) panel(); }
+// The Today page (today.mjs): Tiro's dashboard, fetched when the page opens (if it's old) or by Refresh.
+const todayPage = createToday({ call: tiroCall, onChange: () => panel() });
 const panelNote = (text, bad = false, p = null) => panelOpen && send({ type: 'panel', msg: { kind: 'note', text, bad, ...(p ? linked(p) : {}) } });
 function panelState() {
   const current = getModel(config.model);
@@ -1853,6 +1884,7 @@ function panelState() {
       mics: mics.list, mic: config.mic ?? '', micAuto: mics.list.find((x) => x.id === mics.auto)?.name ?? '',
       download: NEEDS_MODEL && config.voice && !voiceReady() ? { status: voiceModel.status, pct: voiceModel.total ? Math.floor((voiceModel.done / voiceModel.total) * 100) : 0, size: sizeLabel() } : null,
     } : null,
+    brain: brainOf(config), today: todayPage.state(),
     sound: !!config.sound, actions: !!config.allowActions, skipAllow: !!config.skipAllow, lite: !!config.lite, notch: MAC && notchScreen ? notchMode() : null, brief: { on: !!config.morningBrief, todoist: !!config.briefTodoist, canTodoist: HANDS_OK },  sync: { dir: config.syncDir || '', at: syncInfo.at, error: syncInfo.error, paused: !!syncInfo.paused }, 
     login: login.supported ? { on: login.on } : null,
     update: { available: update.available, installing: update.installing, checking: update.checking, result: update.result, page: update.page, done: update.done },
@@ -1999,7 +2031,7 @@ async function onMenu(id, via) {
   else if (id === 'stop') { const cancelled = busy; if (busy) logLine('stopped', { by: via === 'esc' ? 'esc' : 'stop' }); endIntro(); controller?.abort(); speech.stop(); ink.stop(cancelled); }
   else if (id === 'new') {
     endIntro();
-    freshSession('new'); menu();
+    freshSession('new'); tiroChat.id = null; menu();
     say('Fresh start. What are we doing?', 'happy');
   } else if (id.startsWith('forget:')) { await forgetFact(id.slice(7)); menu(); }
   else if (id === 'panel') send({ type: 'panel_show' });
@@ -2079,6 +2111,12 @@ async function onMenu(id, via) {
   else if (id === 'syncallow') { syncAllowOnce = true; await syncPass().catch(() => {}); }
   else if (id === 'syncstop') { config.syncDir = ''; syncKey = null; syncAllowOnce = false; if (config.syncKeySaved) { await secrets.delete(SYNC_KEY).catch(() => {}); config.syncKeySaved = false; } saveConfig(); syncInfo = { at: null, error: null }; menu(); say('Stopped syncing. Everything stays on this computer, and the folder copy is left as it was.', 'happy'); }
   else if (id === 'sound') { config.sound = !config.sound; saveConfig(); ui({ kind: 'sound', on: config.sound }); voiceConfig(); menu(); }
+  else if (id === 'today:open' || id === 'today:refresh') todayPage.refresh({ force: id === 'today:refresh' });
+  else if (id.startsWith('todo:done:')) todayPage.todo(id.slice(10)).catch((e) => panelNote(`Couldn't tick it off: ${e.message}`, true));
+  else if (id === 'brain:server' || id === 'brain:pc') {
+    config.brain = id.slice(6); saveConfig(); menu();
+    say(config.brain === 'server' ? "I'll think on the Tiro server now: same chats and memory as your phone." : "I'll think here on the PC now, with the model on this page. Chats still go to Tiro.", 'happy');
+  }
   else if (id === 'lite') {
     config.lite = !config.lite; saveConfig(); agentStale = true; menu();
     say(config.lite ? 'Lite mode on. I\'ll stick to talking, your list, opening things and web search.' : 'Lite mode off. Everything\'s back on.', 'happy');
@@ -2334,7 +2372,8 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   let m;
   try { m = JSON.parse(line); } catch { return; }
   if (m.type === 'menu') onMenu(m.id, m.via).catch((e) => console.error('menu', e));
-  else if (m.type === 'panel_open') { panelOpen = true; panelAt = Date.now(); logLine('panel_open', {}); if (VOICE_OK) send({ type: 'voice_mics' }); Promise.all([refreshAuth(), signedIn.get('local') && syncLocal(), tts().local && speech.checkLocal()]).catch(() => {}).finally(() => { panel(); refreshCatalogs(); }); }
+  else if (m.type === 'panel_todo' && typeof m.text === 'string' && m.text.trim()) todayPage.addTodo(m.text).catch((e) => panelNote(`Couldn't add it: ${e.message}`, true));
+  else if (m.type === 'panel_open') { panelOpen = true; panelAt = Date.now(); logLine('panel_open', {}); todayPage.refresh(); if (VOICE_OK) send({ type: 'voice_mics' }); Promise.all([refreshAuth(), signedIn.get('local') && syncLocal(), tts().local && speech.checkLocal()]).catch(() => {}).finally(() => { panel(); refreshCatalogs(); }); }
   else if (m.type === 'diagnostics') { shellInfo?.(m); shellInfo = null; }
   else if (m.type === 'panel_closed') { panelOpen = false; logLine('panel_closed', { why: String(m.why ?? ''), ms: Date.now() - panelAt }); }
   else if (m.type === 'panel_key' && typeof m.provider === 'string' && typeof m.key === 'string') {

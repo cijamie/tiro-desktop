@@ -321,3 +321,22 @@ html, body { height: 100%; background: transparent; }
   .frame.opening, .frame.shutting, .pane.enter > *, .pane.enter .list > li, .navi.ping, .item.leaving, .note, .arm[aria-pressed="true"] > .yes { animation: none; }
   .navi, .arm > span, .tab, .ibtn, .ibtn > span { transition: none; }
 }
+
+/* Today: Tiro's dashboard in short (panel.js todayPage). */
+.today-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 4px; }
+.today-when { margin: 0; font-size: var(--t-small); color: var(--ink-3); }
+.tlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.trow { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 3px 0; font-size: var(--t-body); line-height: 1.4; }
+.trow .ttext { flex: 1; min-width: 0; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trow .tmeta { flex: none; font-size: var(--t-small); color: var(--ink-3); white-space: nowrap; }
+.trow .tmeta.time { min-width: 4.2em; font-variant-numeric: tabular-nums; }
+.trow.late .tmeta { color: #ff8a7a; }
+.trow .link { flex: none; }
+.tick { flex: none; align-self: center; width: 14px; height: 14px; padding: 0; border: 2px solid var(--ink-3); background: transparent; cursor: pointer; }
+.tick:hover { border-color: var(--accent); background: rgba(245, 172, 130, 0.15); }
+.tick:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.brief, .wx, .tomorrow { margin: 0; font-size: var(--t-body); line-height: 1.5; color: var(--ink-2); white-space: pre-line; }
+.tomorrow { margin-top: 4px; color: var(--ink-3); }
+.ncat { margin: 6px 0 2px; font: 700 var(--t-small)/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
+#todo-add { width: 100%; margin-top: 6px; box-sizing: border-box; }
+.empty.bad { color: #ff8a7a; }

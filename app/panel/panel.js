@@ -13,7 +13,7 @@
   // An action from the menu's list. away: it happens on the desktop, so the panel steps aside first.
   const act = (id, away = false) => { if (away) hide(); send({ type: 'menu', id }); };
 
-  let state = null, tab = 'home', deferred = false;
+  let state = null, tab = 'today', deferred = false;
   // What's open in the panel itself: a key field (provider id, 'fish' or 'gemini'), the row action waiting for its
   // Confirm, each long list's page (pg) and how many rows fit on one (per, measured), Memory's tab and its search.
   const ui = { key: null, kind: {}, arm: null, add: { label: '', url: '', key: '', images: false }, addSent: null, pg: {}, per: {}, base: {}, rec: null, mtab: 'facts', q: '', bindShown: new Set() };
@@ -347,6 +347,49 @@
       recentList(),
     ].flat();
   }
+  // ---------------------------------------------------------------- Today: Tiro's dashboard, in short
+  // From the Tiro server (today.mjs in the sidecar). Links open in the browser; mail and events are only shown.
+  const openLink = (url) => send({ type: 'open_link', url });
+  function todayPage() {
+    const t = state.today ?? {}, d = t.data;
+    const head = el('div', { className: 'today-head' },
+      el('p', { className: 'today-when', textContent: t.loading ? 'Updating…' : t.at ? `Updated ${ago(t.at)}` : '' }),
+      el('span', { className: 'links' },
+        link('Refresh', () => act('today:refresh'), { k: 'today-refresh', disabled: t.loading }),
+        link('Open Tiro', () => openLink('https://tiro.jamies.dev/'), { k: 'today-web', aria: 'Open Tiro in the browser' })));
+    if (!d) {
+      return [head, el('div', { className: 'group' }, el('p', { className: t.error ? 'empty bad' : 'empty', role: t.error ? 'alert' : null,
+        textContent: t.error ? `Couldn't reach Tiro: ${t.error}` : 'Loading Today…' }))];
+    }
+    const rows = (items, row) => el('ul', { className: 'tlist' }, items.map(row));
+    const go = (url, label) => (url ? link('Open', () => openLink(url), { aria: `Open ${label}` }) : null);
+    const w = d.weather;
+    const todoRow = (x) => el('li', { className: `trow${x.overdue ? ' late' : ''}` },
+      el('button', { className: 'px tick', type: 'button', 'aria-label': `Done: ${x.text}`, 'data-k': `todo-${x.id}`, on: { click: () => act(`todo:done:${x.id}`) } }),
+      el('span', { className: 'ttext', textContent: x.text }),
+      x.due ? el('span', { className: 'tmeta', textContent: x.overdue ? `late · ${x.due}` : x.due }) : null);
+    const addField = el('input', { className: 'px field', type: 'text', placeholder: 'Add a to-do', maxLength: 200, 'aria-label': 'Add a to-do', id: 'todo-add',
+      on: { keydown: (e) => { if (e.key === 'Enter' && e.target.value.trim()) { send({ type: 'panel_todo', text: e.target.value.trim() }); e.target.value = ''; } } } });
+    return [
+      head,
+      t.error ? el('p', { className: 'empty bad', role: 'alert', textContent: `Couldn't update: ${t.error}` }) : null,
+      d.briefing ? group('Briefing', null, null, el('p', { className: 'brief', textContent: d.briefing })) : null,
+      d.agenda ? group('Up next', d.agenda.today.length ? null : 'Nothing else today.', null,
+        d.agenda.today.length ? rows(d.agenda.today, (e) => el('li', { className: 'trow' },
+          el('span', { className: 'tmeta time', textContent: e.time }), el('span', { className: 'ttext', textContent: e.title }),
+          e.where ? el('span', { className: 'tmeta', textContent: e.where }) : null)) : null,
+        d.agenda.tomorrow.length ? el('p', { className: 'tomorrow', textContent: `Tomorrow: ${d.agenda.tomorrow.map((e) => `${e.time} ${e.title}`).join(' · ')}` }) : null) : null,
+      d.todos ? group('To-do', null, d.todos.length, d.todos.length ? rows(d.todos, todoRow) : null, addField) : null,
+      d.canvas?.length ? group('Classes', null, null, rows(d.canvas, (c) => el('li', { className: `trow${c.overdue ? ' late' : ''}` },
+        el('span', { className: 'ttext', textContent: c.title, title: c.course }), el('span', { className: 'tmeta', textContent: c.due }), go(c.link, c.title)))) : null,
+      d.mail?.length ? group('Important mail', null, d.mail.length, rows(d.mail, (m) => el('li', { className: 'trow' },
+        el('span', { className: 'ttext' }, el('b', { textContent: m.from }), ` ${m.subject}`), el('span', { className: 'tmeta', textContent: m.when }), go(m.link, `the email from ${m.from}`)))) : null,
+      w ? group('Weather', w.place || null, null, el('p', { className: 'wx', textContent: `${w.temp}° ${w.sky}${w.feels !== w.temp ? `, feels ${w.feels}°` : ''}${w.high != null ? ` · today ${w.low}° to ${w.high}°` : ''}${w.rain ? ` · ${w.rain} mm rain` : ' · dry'}` })) : null,
+      d.spend ? group('Spending', null, null, el('p', { className: 'wx', textContent: `Claude this month: $${d.spend.api.toFixed(2)}${d.spend.limit != null ? ` of $${d.spend.limit}` : ''}${d.spend.projected != null ? ` · on track for $${Number(d.spend.projected).toFixed(2)}` : ''}` })) : null,
+      d.news?.length ? group('News', null, null, d.news.map((c) => [el('p', { className: 'ncat', textContent: c.cat }),
+        rows(c.items, (n) => el('li', { className: 'trow' }, el('span', { className: 'ttext', textContent: n.title, title: n.source }), go(n.link, n.title)))])) : null,
+    ];
+  }
   function recentList() {
     const { box, nav } = paged('recent', state.recent, (r) => el('li', { className: `item ${r.kind}` },
       el('span', { className: 'mark', 'aria-hidden': 'true' }),
@@ -511,7 +554,11 @@
       p.method === 'key' || p.key ? keyForm(p.id, p.label, (key, kind) => send({ type: 'panel_key', provider: p.id, kind, key }), p.kinds) : null)),
     { label: 'Accounts', pin: accounts.findIndex((p) => p.id === ui.key) });
     return [
-      group('Model', 'Which AI answers you.', null,
+      group('Brain', 'Where I think. Long jobs on the screen always run here on the PC.', null,
+        picks('Brain', [['server', 'Tiro server'], ['pc', 'This PC']], state.brain ?? 'server', (x) => act(`brain:${x}`), 'brain',
+          { server: 'Tiro\'s server answers with its Claude API key (and local models), with your email, calendar and notes. Same chats and memory as your phone.',
+            pc: 'This app answers with the model below (your Claude subscription). Chats are still copied to Tiro.' })),
+      group('Model', state.brain === 'pc' ? 'Which AI answers you.' : 'For long jobs on the screen, and when Brain is This PC.', null,
         select ?? el('p', { className: 'empty', textContent: 'Sign in to an account below first.' }),
         toggle('Lite mode', 'For small or local models. Fewer features.', state.lite, () => act('lite'), 'lite')),
       el('div', { className: 'group paged' }, el('div', { className: 'ghead' }, el('h2', { textContent: 'Accounts' }), el('p', { textContent: 'Sign in to use their models.' })), box),
@@ -804,7 +851,7 @@
   }
 
   // ---------------------------------------------------------------- render
-  const PANES = { home, memory, model: modelPage, appearance: appearancePage, speaking: speakingPage, listening: listeningPage, shortcuts: shortcutsPage, routines: routinesPage, general: generalPage, about: aboutPage, whatsnew: whatsNewPage };
+  const PANES = { today: todayPage, home, memory, model: modelPage, appearance: appearancePage, speaking: speakingPage, listening: listeningPage, shortcuts: shortcutsPage, routines: routinesPage, general: generalPage, about: aboutPage, whatsnew: whatsNewPage };
   // focusKey: what to focus after (a data-k, or an element id); otherwise whatever had focus keeps it.
   function render(focusKey, animate = false) {
     if (!state) return;
@@ -859,6 +906,7 @@
     const changed = name !== tab;
     if (!changed && !focus) return;
     tab = name;
+    if (name === 'today') act('today:open'); // fetched if it's more than a few minutes old
     disarm(); ui.key = null; ui.rec = null;
     for (const t of TABS) {
       if (t === name) navi(t).setAttribute('aria-current', 'page'); else navi(t).removeAttribute('aria-current');
