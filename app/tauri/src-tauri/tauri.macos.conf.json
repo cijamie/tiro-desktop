@@ -1,0 +1,28 @@
+{
+  "bundle": {
+    "externalBin": [
+      "binaries/tiro-voice",
+      "binaries/tiro-hands",
+      "binaries/tiro-node"
+    ],
+    "macOS": {
+      "dmg": {
+        "background": "dmg/background.tiff",
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        },
+        "appPosition": {
+          "x": 165,
+          "y": 222
+        },
+        "applicationFolderPosition": {
+          "x": 495,
+          "y": 222
+        }
+      },
+      "hardenedRuntime": true,
+      "entitlements": "Tiro.entitlements"
+    }
+  }
+}

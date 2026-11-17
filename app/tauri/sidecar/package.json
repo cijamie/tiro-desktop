@@ -1,0 +1,36 @@
+{
+  "name": "tiro-desktop-sidecar",
+  "description": "Tiro desktop's Node sidecar (based on Tiro by Ken Kai)",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cijamie/tiro-desktop.git",
+    "directory": "app/tauri/sidecar"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "./bundle.sh",
+    "test": "node test/run.mjs",
+    "test:live": "node bench/memory.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.321",
+    "@kenkaiiii/gg-agent": "5.102.0",
+    "@kenkaiiii/gg-ai": "5.102.0",
+    "@kenkaiiii/gg-core": "5.102.0",
+    "@kenkaiiii/ggcoder": "5.102.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "overrides": {
+    "undici": "7.30.1",
+    "@huggingface/transformers": "4.3.2",
+    "@anthropic-ai/sandbox-runtime": { "zod": "$zod" }
+  }
+}

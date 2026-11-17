@@ -1,0 +1,9 @@
+{
+  "bundle": {
+    "externalBin": [
+      "binaries/tiro-voice",
+      "binaries/tiro-hands",
+      "binaries/tiro-node"
+    ]
+  }
+}
