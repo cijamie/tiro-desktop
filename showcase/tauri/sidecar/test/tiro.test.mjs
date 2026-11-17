@@ -33,6 +33,12 @@ await assert.rejects(tools(async () => null, undefined, 'darwin').read_selection
 
 await assert.rejects(tiroCall('GET', '/x', undefined, { fetchImpl: async () => { throw Object.assign(new Error('x'), { cause: { code: 'ENOTFOUND' } }); } }), /Tailscale/);
 await assert.rejects(tiroCall('GET', '/x', undefined, { fetchImpl: async () => new Response('{"detail":"not signed in"}', { status: 401 }) }), /recognise this computer/);
+{
+  let sent;
+  await tiroCall('POST', '/chat', { message: 'hi' }, { env: {}, fetchImpl: async (url, o) => { sent = o; return new Response('{"reply":"ok"}'); } });
+  assert.equal(sent.headers['x-tiro'], '1', "every request carries Tiro's own header (POSTs are refused without it)");
+}
+await assert.rejects(tiroCall('POST', '/x', {}, { fetchImpl: async () => new Response('{"detail":"missing X-Tiro header"}', { status: 403 }) }), /not Tailscale/);
 assert.equal(tiroUrl({}), 'https://tiro.jamies.dev');
 assert.equal(tiroUrl({ TIRO_URL: 'https://example.test/' }), 'https://example.test');
 console.log('tiro tests: passed');

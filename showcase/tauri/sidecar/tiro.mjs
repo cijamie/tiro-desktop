@@ -12,7 +12,8 @@ const short = (s, n) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s)
 
 /** One request to Tiro. Throws an Error whose message the model can pass on in plain words. */
 export async function tiroCall(method, route, body, { timeout = 20_000, env = process.env, fetchImpl = fetch } = {}) {
-  const headers = { 'content-type': 'application/json' };
+  // X-Tiro: 1 is how Tiro tells its own apps from other web pages; changes (every POST) are refused without it.
+  const headers = { 'content-type': 'application/json', 'x-tiro': '1' };
   if (env.TIRO_TOKEN) headers.authorization = `Bearer ${env.TIRO_TOKEN}`;
   let r;
   try {
@@ -25,6 +26,7 @@ export async function tiroCall(method, route, body, { timeout = 20_000, env = pr
   let j;
   try { j = JSON.parse(text); } catch { j = { detail: text.slice(0, 200) }; }
   if (r.status === 401) throw new Error("Tiro doesn't recognise this computer. Sign in to Tailscale with Jamie's account on it.");
+  if (r.status === 403) throw new Error(`Tiro refused it (403: ${typeof j.detail === 'string' ? j.detail : 'forbidden'}). This is a problem in the app or the server, not Tailscale.`);
   if (!r.ok) throw new Error(`Tiro said no (${r.status}): ${typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail ?? j).slice(0, 200)}`);
   return j;
 }

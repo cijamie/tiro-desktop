@@ -30,7 +30,7 @@
     "macOS": {
       "minimumSystemVersion": "13.5"
     },
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "externalBin": [
       "binaries/roamies-node"
     ]
