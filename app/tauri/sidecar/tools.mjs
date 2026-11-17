@@ -231,7 +231,7 @@ export function sideSearchFor(route) {
 // Every request and redirect hop of web_fetch goes through safety.mjs, by name and by the addresses it resolves to.
 export const guardFetch = async (url) => { const v = await checkFetch(url); return v.level === BLOCK ? `Blocked for safety: ${v.reason}` : null; };
 
-export function createTools({ allowActions, ui, ask, openUrl, onCommitments, focus = null, firedReminders = () => [], showList, fmtWhen, commitmentsText, userName, onPlan = () => {}, speak = () => false, onHandoff = () => {}, watchClicks = () => {}, onInkGone = () => {}, askShell = async () => ({ ok: false, error: 'Tiro isn\'t running.' }), workdir = HOME, own = null, sideSearch = async () => null, pointScale = () => 'pixels', skipAllow = () => false }) {
+export function createTools({ allowActions, ui, ask, openUrl, onCommitments, firedReminders = () => [], showList, fmtWhen, commitmentsText, userName, onPlan = () => {}, speak = () => false, onHandoff = () => {}, watchClicks = () => {}, onInkGone = () => {}, askShell = async () => ({ ok: false, error: 'Tiro isn\'t running.' }), workdir = HOME, own = null, sideSearch = async () => null, pointScale = () => 'pixels', skipAllow = () => false }) {
   // Relative paths (and run_command) start in workdir: the home folder for the chat, its own folder for an agent.
   const at = (p) => { const s = String(p ?? ''); return /^~(?=$|\/|\\)/.test(s) || path.isAbsolute(s) || /^[a-z]:[\\/]/i.test(s) ? s : path.join(workdir, s); };
   const where = workdir === HOME ? "the user's home folder" : `its working folder (${workdir})`;
@@ -1033,17 +1033,6 @@ A drawing stays until the user clears it or the window changes; your next drawin
       parameters: z.object({}),
       execute: async () => commitmentsText() || 'Nothing open.',
     },
-    ...(focus ? [{
-      name: 'start_focus',
-      description: `Start a focus block when ${userName} wants to focus or work without distractions for a while ("focus for 45 minutes", "help me stay on task"). While it runs you look at the window in front every 20 seconds and get a note when they stay on a distraction (from their list: YouTube, Reddit, games and so on), so you can nudge them back. minutes: 5 to 240 (25 if they don't say). task: what they're working on, if they said. Starting one replaces a running block.`,
-      parameters: z.object({ minutes: z.number().optional(), task: z.string().max(120).optional() }),
-      execute: async ({ minutes, task }) => focus.start(minutes, task),
-    }, {
-      name: 'stop_focus',
-      description: 'End the running focus block early, when they say they\'re done or want to stop.',
-      parameters: z.object({}),
-      execute: async () => focus.stop(),
-    }] : []),
   ];
 
   // Tiro: the server's tools (tiro.mjs), and the highlighted text in the app in front.

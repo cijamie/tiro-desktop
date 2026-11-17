@@ -23,24 +23,17 @@
 
 mod logic;
 
-#[cfg(windows)]
 mod act;
-#[cfg(windows)]
 mod capture;
-#[cfg(windows)]
 mod ocr;
-#[cfg(windows)]
 mod select;
-#[cfg(windows)]
 mod uia;
-#[cfg(windows)]
 mod win;
 
 use serde_json::{json, Value};
 use std::io::Write;
 
 pub fn out(v: Value) -> ! {
-    #[cfg(windows)]
     act::give_back();
     let mut o = std::io::stdout().lock();
     let _ = writeln!(o, "{v}");
@@ -74,13 +67,9 @@ fn main() {
     if cmd == "--self-test" {
         self_test();
     }
-    #[cfg(windows)]
     windows_main(&cmd, &args);
-    #[cfg(not(windows))]
-    fail(&format!("{cmd}: this helper only runs on Windows"));
 }
 
-#[cfg(windows)]
 fn windows_main(cmd: &str, args: &[String]) -> ! {
     use logic::{app_matches, whole_match};
     use win::{no_window, resolve, win_info, windows};
@@ -242,7 +231,6 @@ fn windows_main(cmd: &str, args: &[String]) -> ! {
 }
 
 /// Scrolls the best whole match for `q` that's out of view into view. True if something was scrolled.
-#[cfg(windows)]
 fn scroll_to_text(w: &logic::Win, q: &str) -> bool {
     let tree = uia::Tree::of_window(w);
     let Some((e, _)) = tree.find_text(w.r, q, true, 8).into_iter().find(|m| {
@@ -263,7 +251,6 @@ fn scroll_to_text(w: &logic::Win, q: &str) -> bool {
 }
 
 /// `--smoke`: the real helper against a real app, the way the sidecar calls it (each command its own run).
-#[cfg(windows)]
 mod smoke {
     use crate::logic::{app_matches, hands_off};
     use serde_json::{json, Value};

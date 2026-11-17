@@ -30,7 +30,6 @@ import {
 } from './store.mjs';
 import { foldInput, foldPrompt, memoryInput, memoryPrompt, oneShot, parseBrain, transcript } from './brain.mjs';
 import { briefNote } from './brief.mjs';
-import { CHECK_MS, DEFAULT_DISTRACTIONS, check as focusCheck, parseDistractions, startBlock } from './focus.mjs';
 import { saveCardImage } from './cardimage.mjs';
 import { cleanWakeName, wakeName } from './wakename.mjs';
 import { KEY_NAME as SYNC_KEY, MIN_PASSPHRASE, checkFolder, folderReady, merge as syncMerge, newDevice, prepareFolder, readRemotes, suggestFolders, tooMuchGone, writeOwn } from './sync.mjs';
@@ -43,7 +42,6 @@ import { QUESTIONS, openNote, answerTurn, wantsSkip, endsChat, splitTurn, plain,
 import { SpeechText, CueFilter, VOICE_CUES, LISTEN_SECS, listenWait, listensAfter } from './speech.mjs';
 import { createSpeaker, voiceProblemText, voiceWhy } from './speaker.mjs';
 import { LITE_BUDGET, LITE_TOOLS, LITE_TURNS, liteSystem } from './lite.mjs';
-import { pickNotch } from './notch.mjs';
 import { DEFAULT_VOICE, FISH_CHOICES } from './fish.mjs';
 import { GEMINI_CHOICES, GEMINI_DEFAULT_VOICE, GEMINI_LOOK_VOICES, GEMINI_MODEL, GEMINI_VOICES } from './gemini.mjs';
 import { createSecrets, retryLoad, runInput } from './secrets.mjs';
@@ -63,7 +61,6 @@ console.log = console.info = (...a) => console.error(...a);
 const send = (o) => process.stdout.write(JSON.stringify(o) + '\n');
 // While the setup guide is open, Sidekick talks through it instead of the desktop overlay.
 let onboarding = false;
-let focusBlock = null, focusTimer = null; // focus mode (below)
 let firedReminders = []; // [{ id, at }]: what went off lately, so "snooze" alone knows which (snooze.mjs)
 let syncInfo = { at: null, error: null }, syncing = null, syncSoonTimer = null, syncKey = null, syncAllowOnce = false; // memory sync (below)
 let intro = null; // the get-to-know-you chat, while it's on
@@ -131,23 +128,18 @@ const sizeNow = () => (SIZES.some(([s]) => s === config.size) ? config.size : 'd
 // config as fishVoice, so the voice comes from the look and that setting is no longer read. (With Gemini as the
 // voice, it's the one Gemini voice the user picked, whatever the look.)
 const LOOKS = [
-  // Tiro: the classic look, renamed, speaking with JARVIS's Fish Audio voice.
+  // Tiro, speaking with JARVIS's Fish Audio voice. (Roamies' other looks were removed in the split.)
   ['classic', 'Tiro', 'e13fa398a7f445a685316a3de6089ce7'],
-  ['jarvis', 'JARVIS', 'e13fa398a7f445a685316a3de6089ce7'],
-  ['anime', 'Anime Girl', 'd8f3b4c1199f4568a767ec54112d2b17'],
-  ['sarah', 'Sarah', '933563129e564b19a115bedd57b7406a'],
-  ['adrian', 'Adrian', 'bf322df2096a46f18c579d0baa36f41d'],
-  ['rita', 'Rita X', '84aadb575ed74e9aa44ba7ab8619d1a1'],
 ];
 const lookVoice = () => (LOOKS.find(([id]) => id === config.look) ?? LOOKS[0])[2];
 // The look's voice with Gemini and with VoiceStudio: the user's pick for it, else its own default.
 const geminiVoice = () => config.geminiVoices?.[config.look] ?? GEMINI_LOOK_VOICES[config.look] ?? GEMINI_DEFAULT_VOICE;
 const studioVoice = () => config.studioVoices?.[config.look] ?? null;
-// Its name is its look's: Tiro, JARVIS, Anime Girl, Sarah, Adrian or Rita X. Tiro is the app.
+// Its name: Tiro.
 const lookName = () => (LOOKS.find(([id]) => id === config.look) ?? LOOKS[0])[1];
 // What each says when it's picked, in its own voice (Settings and the setup guide show the same words).
-const LOOK_GREETINGS = { classic: 'Tiro, at your service.', jarvis: 'At your service.', anime: 'Yay, hi hi!', sarah: 'Hey, nice to meet you!', adrian: "Alright, let's do this.", rita: 'Shall we get to work?' };
-const LOOK_BODY = { classic: 'a small glowing pixel assistant', jarvis: 'a glowing sphere of light', anime: 'a pixel anime girl', sarah: 'a pixel woman', adrian: 'a pixel man', rita: 'a pixel secretary in cat-eye glasses' };
+const LOOK_GREETINGS = { classic: 'Tiro, at your service.' };
+const LOOK_BODY = { classic: 'a small glowing pixel assistant' };
 const VOICE_OK = hasVoice(process.platform);
 // Windows and Linux have no on-device speech API apps can use, so voice there runs Parakeet on the PC. Its model
 // is downloaded once: from the setup guide, or the first time voice is used.
@@ -167,6 +159,8 @@ let shellInfo = null; // resolves the shell's reply to it: screens, tray, panel,
     if (config[one]) config[each] = { [config.look ?? 'classic']: config[one], ...config[each] };
     delete config[one];
   }
+  // A look Roamies had (JARVIS, the characters) is Tiro now.
+  if (!LOOKS.some(([id]) => id === config.look)) config.look = 'classic';
 }
 const saveConfig = () => writeJson(CONFIG_PATH, config, { backup: true });
 
@@ -311,10 +305,9 @@ const sendKeys = () => send({ type: 'keybinds', ...keys(), write: HOTKEYS_OK ? k
 const talkHow = () => (HOTKEYS_OK ? `Hold ${talkWords().replace('+', ' and ')}` : 'Press your talk shortcut');
 const talkHowLong = () => (HOTKEYS_OK ? `${talkHow()} while you talk` : 'Press your talk shortcut, talk, then press it again (or just pause)');
 const MAC = process.platform === 'darwin';
-// The notch capsule (notch.js in the overlay): only on a Mac with a notched screen (the shell says, notch_screen).
-// 'off' keeps me beside the cursor.
+// Roamies' notch capsule was macOS only: Tiro always appears beside the cursor.
 let notchScreen = false;
-const notchMode = () => pickNotch({ mac: MAC, notchScreen, pick: config.notch });
+const notchMode = () => 'off';
 // Tells the overlay page where I appear (and how the capsule animates).
 const notchUi = () => ui({ kind: 'notch', on: notchMode() !== 'off', style: notchMode() === 'off' ? 'spread' : notchMode() });
 // What the model is told about the computer. "darwin" alone left it using PC habits: Cmd+End (does nothing in Mac
@@ -481,7 +474,6 @@ const userName = (() => {
 // The open request's voice, if replies are spoken: draw's beat lines are said on it, in order with the reply.
 let turnVoice = null;
 const { tools, hands, whereNow, frontNow: frontData, frontBounds, ink, nextTurn } = createTools({
-  focus: HANDS_OK ? { start: (m, t) => startFocus(m, t), stop: () => stopFocus() } : null,
   firedReminders: () => firedReminders,
   allowActions: () => config.allowActions, skipAllow: () => !!config.allowActions && !!config.skipAllow, ui, ask, openUrl, userName,
   speak: (line) => { if (!turnVoice) return false; turnVoice.say(line); return true; },
@@ -584,8 +576,6 @@ function anim(name, args = {}) {
     case 'web_search': return { tool: 'web', variant: 'search', label: 'searching', detail: 'the web' };
     case 'remember_commitment': return { tool: 'write', variant: 'create', label: 'saving', detail: 'a reminder' };
     case 'forget_fact': return { tool: 'write', variant: 'crumble', label: 'forgetting', detail: 'that' };
-    case 'start_focus': return { tool: 'run', variant: 'progress', label: 'focusing', detail: `${args.minutes ?? 25} min` };
-    case 'stop_focus': return { tool: 'run', variant: 'ok', label: 'ending', detail: 'focus' };
     case 'snooze_reminder': return { tool: 'write', variant: 'edit', label: 'snoozing', detail: String(args.until ?? '10 min').slice(0, 20) };
     case 'update_commitment': return { tool: 'write', variant: 'edit', label: 'updating', detail: 'a reminder' };
     case 'open': {
@@ -650,7 +640,7 @@ const livePrompt = (context = '') => {
   lastFactIds = facts.map((f) => f.id);
   const open = commitmentsText(), done = doneTodayText(), working = agents.liveText();
   const turn = `Live state (current as of this moment):
-${frontNow ? `${frontNow}\n` : ''}${focusLine()}- Editing files, running commands and controlling other apps: ${config.allowActions ? 'ALLOWED' : `switched OFF (tell the user to turn on "Allow File Edits & Commands" on the General page in ${PANEL} if they want it)`}.${config.allowActions && config.skipAllow ? ' Allow prompts are skipped: confirmations go ahead automatically, so be extra careful.' : ''}
+${frontNow ? `${frontNow}\n` : ''}- Editing files, running commands and controlling other apps: ${config.allowActions ? 'ALLOWED' : `switched OFF (tell the user to turn on "Allow File Edits & Commands" on the General page in ${PANEL} if they want it)`}.${config.allowActions && config.skipAllow ? ' Allow prompts are skipped: confirmations go ahead automatically, so be extra careful.' : ''}
 ${VOICE_OK ? `- Voice: ${!config.voice ? 'off' : voiceReady() ? `on; ${HOTKEYS_OK ? `${userName} holds ${talkWords()} to talk` : `${userName} presses the key they bound to ${BIND.talk} to start talking and again to send (a pause sends too)`}${config.autoListen ? (config.listenEvery ? `. Auto-listen is on for every reply: after each spoken reply the mic opens by itself for ${listenSecs()} seconds, so they can just keep talking` : '. Auto-listen is on: when your reply to a spoken question ends with a question, the mic opens by itself for their answer') : ''}${!MAC ? '. There is no wake word on this computer (it is Mac-only so far): to talk they use the talk keys' : ''}${MAC && config.wakeWord ? `. Wake word is on: ${userName} can also say "Hey ${wakeName(config)}" to start talking hands-free, and what they say right after it is the request (a request that still starts with "Hey ${wakeName(config)}" is them waking you, not calling you by another name: never correct it)${config.wakeName ? ` (they chose "${config.wakeName}" as the wake word; your own name is unchanged)` : ''}` : ''}` : `on, but the speech model isn't downloaded yet (${voiceModel.status === 'downloading' ? 'downloading now' : `the Voice page in ${PANEL}`})`}.` : ''}
 - Shortcuts: ${HOTKEYS_OK ? `${keys().write ? `type a question to you: a quick tap of ${writeWords()} (press both and let go), which opens a text field beside the cursor (Enter sends, Shift+Enter adds a line, Esc or another tap closes it)` : `the tap that opens a text field to type a question is turned off (the Ask button in ${PANEL} still opens it; the Shortcuts page there turns the tap back on)`}; show or hide you ${keyWords(keys().summon)}` : `on this Wayland desktop no app can have global shortcuts, so ${userName} binds keys to these commands in their desktop's keyboard settings: ${BIND.summon} (show or hide you), ${BIND.ask} (ask you), ${BIND.list} (the list), ${BIND.talk} (talk) and ${BIND.panel} (the panel)`}${SNAP_OK ? `; ask about an area ${keyWords(keys().snap)}` : ''}${CIRCLE_OK ? "; while holding the talk keys, moving the cursor round something circles it (no clicking; it snaps shut with a click when the circle closes, and loose lines don't count) and you'll see what they circled" : ''}${HOTKEYS_OK ? `; show the list ${keyWords(keys().list)}` : ''}.${HANDS_OK ? '' : ' Asking about an area, reading app windows, finding things on screen by their words and working other apps need the Tiro app, which isn\'t running here; draw there with x, y from a screenshot.'}`;
   const memory = `${open ? `Open commitments:\n${open}` : 'No open commitments.'}${done ? `\nDone today (ticked off on the list or by you; still shown struck through until midnight):\n${done}` : ''}
@@ -1634,51 +1624,6 @@ function onUpdateStatus(m) {
   }
 }
 
-// ---------- focus mode (focus.mjs) ----------
-// A timed block: every CHECK_MS it looks at the window in front (app, title, address; never kept or logged) and, when
-// they stay on something from their distraction list, asks the model for a playful nudge. Ends by itself.
-const distractionList = () => config.distractions ?? DEFAULT_DISTRACTIONS;
-function focusLine() {
-  if (!focusBlock) return '';
-  const left = Math.max(0, Math.round((focusBlock.until - Date.now()) / 60_000));
-  return `- Focus block running${focusBlock.task ? ` (on: ${focusBlock.task})` : ''}: ${left} min left, until ${new Date(focusBlock.until).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}; drifted ${focusBlock.drifts} time${focusBlock.drifts === 1 ? '' : 's'} so far. Help them stay on it.\n`;
-}
-function startFocus(minutes, task) {
-  focusBlock = startBlock(minutes, task);
-  clearInterval(focusTimer);
-  focusTimer = setInterval(() => focusTick().catch((e) => console.error('focus', e)), CHECK_MS);
-  logLine('focus', { start: focusBlock.minutes });
-  agentStale = true; menu();
-  return `Focus block started: ${focusBlock.minutes} minutes, until ${fmtWhen(focusBlock.until)}. I'll check in if they drift to: ${distractionList().slice(0, 8).join(', ')}${distractionList().length > 8 ? ' and more' : ''}.`;
-}
-function stopFocus(byPanel = false) {
-  if (!focusBlock) return 'No focus block is running.';
-  const b = focusBlock;
-  focusBlock = null; clearInterval(focusTimer); focusTimer = null;
-  logLine('focus', { stop: Math.round((Date.now() - b.startedAt) / 60_000), drifts: b.drifts });
-  agentStale = true; menu();
-  if (byPanel) say('Focus block ended. Nice work.', 'happy');
-  return `Focus block ended after ${Math.round((Date.now() - b.startedAt) / 60_000)} minutes, with ${b.drifts} drift${b.drifts === 1 ? '' : 's'}.`;
-}
-async function focusTick() {
-  const b = focusBlock;
-  if (!b) return;
-  const front = Date.now() >= b.until ? null : await frontData();
-  if (b !== focusBlock) return;
-  const r = focusCheck(b, front, distractionList());
-  if (r.end) {
-    const drifts = b.drifts;
-    stopFocus();
-    if (!busy && !onboarding) enqueue(`(System, not ${userName}: their ${b.minutes}-minute focus block${b.task ? ` on ${b.task}` : ''} just ended, with ${drifts} drift${drifts === 1 ? '' : 's'}. Tell them in one or two sentences, in character, celebrating it. Start with the [happy] tag.)`);
-    return;
-  }
-  // A nudge waits while a conversation is going on; the next look decides again.
-  if (r.nudge && !busy && !onboarding && !loggingIn) {
-    logLine('focus', { nudge: true });
-    const left = Math.max(1, Math.round((b.until - Date.now()) / 60_000));
-    enqueue(`(System, not ${userName}: they're in a focus block${b.task ? ` on ${b.task}` : ''} with ${left} min left, but have been on ${r.nudge} for a bit. Nudge them back playfully in one short sentence, in character: teasing, never scolding. Start with the [remind] tag.)`);
-  } else if (r.nudge) b.nudgedAt = 0;
-}
 // ---------- memory sync (sync.mjs) ----------
 // With a sync folder set: a pass every minute, and a few seconds after a change here. A pass merges the other
 // computers' files into memory (only if nothing changed here meanwhile) and writes this computer's file.
@@ -1725,21 +1670,6 @@ async function syncPass() {
 }
 setInterval(() => syncPass(), 60_000);
 if (config.syncDir) setTimeout(() => syncPass(), 5000);
-// ---------- game mode (overlay/sidebar.js) ----------
-// While a game fills the screen, the Tiro and its cards move to a panel at the screen's edge. macOS already knows when
-// a fullscreen game is in front (fullscreen.rs), so the overlay only needs the setting from here. On Windows, the front
-// window's bounds go to the overlay every few seconds (from the hands helper; nothing kept or logged). Not on Linux.
-let gameTicking = false;
-const WIN = process.platform === 'win32';
-async function gameModeTick() {
-  if (gameTicking) return;
-  gameTicking = true;
-  try {
-    const enabled = HANDS_OK && config.gameSidebar !== false;
-    ui({ kind: 'front_window', rect: enabled && WIN ? await frontBounds() : null, enabled });
-  } finally { gameTicking = false; }
-}
-if (HANDS_OK) setInterval(() => gameModeTick().catch(() => {}), WIN ? 3000 : 30_000);
 
 // ---------- the list on screen ----------
 // Today / Later, drawn by the overlay next to Sidekick. seconds: how long it stays up (0 = just update it if it's open).
@@ -1923,7 +1853,7 @@ function panelState() {
       mics: mics.list, mic: config.mic ?? '', micAuto: mics.list.find((x) => x.id === mics.auto)?.name ?? '',
       download: NEEDS_MODEL && config.voice && !voiceReady() ? { status: voiceModel.status, pct: voiceModel.total ? Math.floor((voiceModel.done / voiceModel.total) * 100) : 0, size: sizeLabel() } : null,
     } : null,
-    sound: !!config.sound, actions: !!config.allowActions, skipAllow: !!config.skipAllow, lite: !!config.lite, notch: MAC && notchScreen ? notchMode() : null, brief: { on: !!config.morningBrief, todoist: !!config.briefTodoist, canTodoist: HANDS_OK }, focus: HANDS_OK ? { until: focusBlock?.until ?? null, task: focusBlock?.task ?? '', list: distractionList(), custom: !!config.distractions } : null, sync: { dir: config.syncDir || '', at: syncInfo.at, error: syncInfo.error, paused: !!syncInfo.paused }, gameMode: HANDS_OK ? config.gameSidebar !== false : null,
+    sound: !!config.sound, actions: !!config.allowActions, skipAllow: !!config.skipAllow, lite: !!config.lite, notch: MAC && notchScreen ? notchMode() : null, brief: { on: !!config.morningBrief, todoist: !!config.briefTodoist, canTodoist: HANDS_OK },  sync: { dir: config.syncDir || '', at: syncInfo.at, error: syncInfo.error, paused: !!syncInfo.paused }, 
     login: login.supported ? { on: login.on } : null,
     update: { available: update.available, installing: update.installing, checking: update.checking, result: update.result, page: update.page, done: update.done },
     intro: !!intro,
@@ -2126,14 +2056,6 @@ async function onMenu(id, via) {
   }
   else if (id === 'morningbrief') { config.morningBrief = !config.morningBrief; saveConfig(); menu(); }
   else if (id === 'brieftodoist' && HANDS_OK) { config.briefTodoist = !config.briefTodoist; saveConfig(); menu(); }
-  else if (id === 'focusstop') stopFocus(true);
-  else if (id === 'distractions' && HANDS_OK) {
-    const typed = await ask({ prompt: 'What distracts you? Sites or apps, separated by commas (empty for my usual list).', placeholder: distractionList().join(', ') });
-    if (typed == null) return;
-    const list = parseDistractions(typed);
-    config.distractions = list.length ? list : null; saveConfig(); menu();
-    say(list.length ? `Got it: ${list.length} thing${list.length === 1 ? '' : 's'} I'll keep you away from.` : 'Back to my usual list.', 'happy');
-  }
   else if (id === 'syncsetup') {
     const hint = suggestFolders()[0] ?? '';
     const typed = await ask({ prompt: `Sync memory with your other computer: the path of a folder both computers sync (iCloud Drive, OneDrive, Dropbox, Google Drive)${hint ? `. Found: ${hint}` : ''}`, placeholder: hint || 'Folder path' });
@@ -2156,7 +2078,6 @@ async function onMenu(id, via) {
   }
   else if (id === 'syncallow') { syncAllowOnce = true; await syncPass().catch(() => {}); }
   else if (id === 'syncstop') { config.syncDir = ''; syncKey = null; syncAllowOnce = false; if (config.syncKeySaved) { await secrets.delete(SYNC_KEY).catch(() => {}); config.syncKeySaved = false; } saveConfig(); syncInfo = { at: null, error: null }; menu(); say('Stopped syncing. Everything stays on this computer, and the folder copy is left as it was.', 'happy'); }
-  else if (id === 'gamemode' && HANDS_OK) { config.gameSidebar = config.gameSidebar === false; saveConfig(); menu(); gameModeTick().catch(() => {}); }
   else if (id === 'sound') { config.sound = !config.sound; saveConfig(); ui({ kind: 'sound', on: config.sound }); voiceConfig(); menu(); }
   else if (id === 'lite') {
     config.lite = !config.lite; saveConfig(); agentStale = true; menu();

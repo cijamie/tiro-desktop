@@ -544,7 +544,6 @@
     else if (m.kind === 'agent') onAgent(m.e);
     else if (m.kind === 'voice') onVoice(m);
     else if (m.kind === 'list') Tiro.ink?.reminders(m);
-    else if (m.kind === 'front_window') Tiro.sidebar?.front(m);
   };
 
   // ---------- Esc ----------

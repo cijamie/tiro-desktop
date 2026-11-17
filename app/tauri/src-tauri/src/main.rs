@@ -3,13 +3,7 @@
 // No Dock icon (LSUIElement + Accessory policy) and no taskbar entries on Windows/Linux.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-#[cfg(target_os = "macos")]
-mod fullscreen;
-#[cfg(target_os = "linux")]
-mod linux;
 mod sidecar;
-#[cfg(target_os = "macos")]
-mod snapshot;
 mod tap;
 mod voice;
 
@@ -65,7 +59,6 @@ struct PermGuide(Mutex<Option<Child>>);
 
 /// Windows: helpers are console programs, so without this each one opens a console window.
 fn hide_console(cmd: &mut Command) -> &mut Command {
-    #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
@@ -141,18 +134,6 @@ fn ink_wait(on: bool) {
     INK_WAIT.store(on, Ordering::Relaxed);
 }
 
-/// Whether the left mouse button is down right now, anywhere on screen. Polling the button state needs no extra
-/// permission (unlike an event tap), and only runs while a drawing waits for a click.
-#[cfg(target_os = "macos")]
-fn left_button_down() -> bool {
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGEventSourceButtonState(state: i32, button: u32) -> bool;
-    }
-    // kCGEventSourceStateCombinedSessionState, kCGMouseButtonLeft
-    unsafe { CGEventSourceButtonState(0, 0) }
-}
-#[cfg(target_os = "windows")]
 fn left_button_down() -> bool {
     #[link(name = "user32")]
     extern "system" {
@@ -161,42 +142,7 @@ fn left_button_down() -> bool {
     // VK_LBUTTON; the high bit is set while it's held.
     unsafe { (GetAsyncKeyState(0x01) as u16 & 0x8000) != 0 }
 }
-#[cfg(target_os = "linux")]
-fn left_button_down() -> bool {
-    linux::left_button_down()
-}
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn left_button_down() -> bool {
-    false
-}
 
-/// The modifier keys held right now, as tap.rs bits. Like the button above, reading key state needs no permission.
-#[cfg(target_os = "macos")]
-fn mods_down() -> u8 {
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGEventSourceFlagsState(state: i32) -> u64;
-    }
-    // kCGEventSourceStateCombinedSessionState
-    let flags = unsafe { CGEventSourceFlagsState(0) };
-    // Shift, Control, Alternate, Command and SecondaryFn in CGEventFlags. Caps Lock is a state, not a key held.
-    [(0x2_0000, tap::SHIFT), (0x4_0000, tap::CONTROL), (0x8_0000, tap::OPTION), (0x10_0000, tap::COMMAND), (0x80_0000, tap::OTHER_MOD)]
-        .iter()
-        .filter(|(flag, _)| flags & flag != 0)
-        .fold(0, |m, (_, bit)| m | bit)
-}
-/// Whether any key that isn't a modifier, or a mouse button, is down. Only asked while a tap is under way.
-#[cfg(target_os = "macos")]
-fn other_input_down() -> bool {
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGEventSourceKeyState(state: i32, key: u16) -> bool;
-        fn CGEventSourceButtonState(state: i32, button: u32) -> bool;
-    }
-    // Virtual key codes 54 to 63 are the modifiers (Command, Shift, Caps Lock, Option, Control, their right twins, Fn).
-    unsafe { (0..5).any(|b| CGEventSourceButtonState(0, b)) || (0..128u16).any(|k| !(54..=63).contains(&k) && CGEventSourceKeyState(0, k)) }
-}
-#[cfg(target_os = "windows")]
 fn vk_down(vk: i32) -> bool {
     #[link(name = "user32")]
     extern "system" {
@@ -204,7 +150,6 @@ fn vk_down(vk: i32) -> bool {
     }
     unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
 }
-#[cfg(target_os = "windows")]
 fn mods_down() -> u8 {
     // VK_CONTROL, VK_LMENU (left Alt), VK_SHIFT, VK_LWIN, VK_RWIN. VK_RMENU (right Alt) is AltGr on many layouts,
     // reported as Ctrl+Alt: never the pair's Alt, and held it spoils a tap (as in voice-win's keys.rs).
@@ -214,30 +159,12 @@ fn mods_down() -> u8 {
         .fold(0, |m, (_, bit)| m | bit)
 }
 /// Mouse buttons (0x01 to 0x06) and every key but the modifiers.
-#[cfg(target_os = "windows")]
 fn other_input_down() -> bool {
     (0x01..=0xFE).filter(|vk| !matches!(vk, 0x10..=0x12 | 0x5B | 0x5C | 0xA0..=0xA5)).any(vk_down)
-}
-#[cfg(target_os = "linux")]
-fn mods_down() -> u8 {
-    linux::keys_state(false).0
-}
-#[cfg(target_os = "linux")]
-fn other_input_down() -> bool {
-    linux::keys_state(true).1
-}
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn mods_down() -> u8 {
-    0
-}
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn other_input_down() -> bool {
-    false
 }
 
 /// Windows: leaves an overlay out of every capture, so Tiro never shows up in its own screenshots, area snaps
 /// or the pictures it reads text from.
-#[cfg(target_os = "windows")]
 fn exclude_from_capture(w: &WebviewWindow) {
     #[link(name = "user32")]
     extern "system" {
@@ -252,13 +179,6 @@ fn exclude_from_capture(w: &WebviewWindow) {
 /// Cursor entered or left something clickable: flip click-through.
 #[tauri::command]
 fn set_hot(window: WebviewWindow, hot: bool) {
-    // Linux lets clicks through by region (set_hit_rects); switching the whole window would undo its shape.
-    if cfg!(target_os = "linux") {
-        return;
-    }
-    // A fullscreen game in front gets every click (fullscreen.rs).
-    #[cfg(target_os = "macos")]
-    let hot = hot && !fullscreen::GAME.load(Ordering::Relaxed);
     OVERLAY_HOT.store(hot, Ordering::Relaxed);
     let _ = window.set_ignore_cursor_events(!hot);
 }
@@ -267,9 +187,6 @@ fn set_hot(window: WebviewWindow, hot: bool) {
 /// passes through to whatever is below.
 #[tauri::command]
 fn set_hit_rects(window: WebviewWindow, rects: Vec<f64>) {
-    #[cfg(target_os = "linux")]
-    linux::set_hit_rects(&window, &rects);
-    #[cfg(not(target_os = "linux"))]
     let _ = (window, rects);
 }
 
@@ -278,30 +195,6 @@ fn set_hit_rects(window: WebviewWindow, rects: Vec<f64>) {
 /// helper to draw it, so the page keeps drawing it itself.
 #[tauri::command]
 fn buddy(app: AppHandle, window: WebviewWindow, msg: Value) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        let mut msg = msg;
-        let on = msg.get("on").and_then(Value::as_bool) == Some(true);
-        if app.state::<Voice>().0.lock().unwrap().is_none() {
-            BUDDY_ON.store(false, Ordering::Relaxed);
-            return false;
-        }
-        if on {
-            // Page px to global points: one points space across screens on macOS.
-            let (Ok(pos), Ok(scale)) = (window.inner_position(), window.scale_factor()) else { return false };
-            let o = pos.to_logical::<f64>(scale);
-            for (k, d) in [("x", o.x), ("l", o.x), ("r", o.x), ("y", o.y), ("t", o.y), ("b", o.y)] {
-                if let Some(v) = msg.get(k).and_then(Value::as_f64) {
-                    msg[k] = json!(v + d);
-                }
-            }
-        }
-        BUDDY_ON.store(on, Ordering::Relaxed);
-        msg["cmd"] = json!("buddy");
-        to_voice(&app, &msg);
-        true
-    }
-    #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, window, msg);
         false
@@ -332,39 +225,12 @@ fn set_typing(app: AppHandle, window: WebviewWindow, on: bool) {
     let was = TYPING.swap(on, Ordering::Relaxed);
     let _ = window.set_focusable(on);
     // COSMIC: the unmanaged overlay can't get the keyboard, so it's an ordinary window while typing (linux.rs).
-    #[cfg(target_os = "linux")]
-    if linux::unmanaged_overlay() && was != on {
-        linux::set_unmanaged(&window, !on, on);
-    }
     let _ = was;
     if on {
         let _ = window.set_focus();
-        #[cfg(target_os = "linux")]
-        if !linux::unmanaged_overlay() {
-            linux::activate(&window);
-        }
         // Opened from a hotkey (e.g. after an area snap), Tiro isn't the active app and macOS 14+
         // ignores plain focus requests, so make the overlay key directly, then ask to activate.
-        #[cfg(target_os = "macos")]
-        if let Ok(p) = window.ns_window() {
-            let p = p as usize;
-            let _ = app.run_on_main_thread(move || unsafe {
-                use objc2::runtime::{AnyObject, Bool};
-                use objc2::{class, msg_send};
-                let win = p as *mut AnyObject;
-                let _: () = msg_send![win, makeKeyAndOrderFront: std::ptr::null::<AnyObject>()];
-                let ns_app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
-                let _: () = msg_send![ns_app, activateIgnoringOtherApps: Bool::YES];
-            });
-        }
     } else {
-        #[cfg(target_os = "macos")]
-        let _ = app.run_on_main_thread(|| unsafe {
-            use objc2::runtime::AnyObject;
-            use objc2::{class, msg_send};
-            let ns_app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
-            let _: () = msg_send![ns_app, deactivate];
-        });
     }
     let _ = &app;
 }
@@ -400,12 +266,9 @@ fn diagnostics(app: &AppHandle) -> Value {
         json!({ "visible": w.is_visible().ok(), "at": w.outer_position().ok().map(|p| [p.x, p.y]),
                 "size": w.outer_size().ok().map(|s| [s.width, s.height]), "opens_upward": PANEL_FROM_BOTTOM.load(Ordering::SeqCst) })
     });
-    let mut perms = helper_perms(&["--perms"]);
-    if cfg!(target_os = "macos") {
-        perms["accessibility"] = json!(accessibility(false));
-    }
-    // Windows and Linux: every microphone, the default one and the format it records in (voice-win --devices).
-    let mics = if cfg!(any(windows, target_os = "linux")) { helper_perms(&["--devices"]) } else { Value::Null };
+    let perms = helper_perms(&["--perms"]);
+    // Every microphone, the default one and the format it records in (voice-win --devices).
+    let mics = helper_perms(&["--devices"]);
     json!({
         "type": "diagnostics",
         "os": std::env::consts::OS, "arch": std::env::consts::ARCH,
@@ -423,94 +286,32 @@ fn diagnostics(app: &AppHandle) -> Value {
     })
 }
 
-/// Accessibility (reading and controlling other apps) is checked by the hands helper.
-fn accessibility(prompt: bool) -> &'static str {
-    let Some(bin) = helper_binary("tiro-hands") else { return "unknown" };
-    let mut cmd = Command::new(bin);
-    cmd.arg("trusted");
-    if prompt {
-        cmd.arg("--prompt");
-    }
-    let ok = cmd.stdin(Stdio::null()).stderr(Stdio::null()).output().ok()
-        .and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok())
-        .and_then(|v| v.get("trusted").and_then(Value::as_bool))
-        .unwrap_or(false);
-    if ok { "granted" } else { "unknown" }
-}
-
 #[tauri::command]
 async fn perm_status() -> Value {
-    // Windows: only the microphone privacy switch, read by the voice helper. Linux has no switch: the helper says
-    // whether there's a microphone at all.
-    if cfg!(windows) || cfg!(target_os = "linux") {
-        return tauri::async_runtime::spawn_blocking(|| helper_perms(&["--perms"])).await.unwrap_or(Value::Null);
-    }
-    if !cfg!(target_os = "macos") {
-        return json!({ "type": "perms", "unsupported": true });
-    }
-    tauri::async_runtime::spawn_blocking(|| {
-        let mut v = helper_perms(&["--perms"]);
-        v["accessibility"] = json!(accessibility(false));
-        v
-    })
-    .await
-    .unwrap_or(Value::Null)
+    // Only the microphone privacy switch, read by the voice helper.
+    tauri::async_runtime::spawn_blocking(|| helper_perms(&["--perms"])).await.unwrap_or(Value::Null)
 }
 
-/// Shows the system prompt for one permission (mic waits for the answer), then returns the new state.
+/// The setup guide's permission prompts were macOS's; Windows has none to show.
 #[tauri::command]
 async fn perm_request(kind: String) -> Value {
-    if !cfg!(target_os = "macos") || !["mic", "speech", "screen", "accessibility"].contains(&kind.as_str()) {
-        return json!({ "type": "perms", "unsupported": true });
-    }
-    if kind == "accessibility" {
-        // Shows macOS's "would like to control this computer" dialog; it opens Settings itself.
-        return tauri::async_runtime::spawn_blocking(|| {
-            let state = accessibility(true);
-            let mut v = helper_perms(&["--perms"]);
-            v["accessibility"] = json!(state);
-            v
-        })
-        .await
-        .unwrap_or(Value::Null);
-    }
-    tauri::async_runtime::spawn_blocking(move || helper_perms(&["--request", &kind])).await.unwrap_or(Value::Null)
+    let _ = kind;
+    json!({ "type": "perms", "unsupported": true })
 }
 
 /// Opens one Privacy & Security pane in System Settings.
 #[tauri::command]
 fn open_settings(pane: String) {
-    const PANES: [&str; 6] = ["Privacy_Microphone", "Privacy_SpeechRecognition", "Privacy_ScreenCapture", "Privacy_FilesAndFolders", "Privacy_AllFiles", "Privacy_Accessibility"];
     // explorer hands ms-settings: links to the Settings app. Taskbar: where Tiro's tray icon is switched on.
-    if cfg!(windows) && (pane == "privacy-microphone" || pane == "taskbar") {
+    if pane == "privacy-microphone" || pane == "taskbar" {
         let _ = hide_console(&mut Command::new("explorer")).arg(format!("ms-settings:{pane}")).spawn();
-        return;
     }
-    if !cfg!(target_os = "macos") || !PANES.contains(&pane.as_str()) {
-        return;
-    }
-    let _ = Command::new("open").arg(format!("x-apple.systempreferences:com.apple.preference.security?{pane}")).spawn();
 }
 
-/// Takes one throwaway screenshot to prove Screen Recording really works, not just that it's switched on.
+/// macOS's Screen Recording check; Windows needs no permission to capture the screen.
 #[tauri::command]
 async fn screen_check() -> Value {
-    if !cfg!(target_os = "macos") {
-        return json!({ "unsupported": true });
-    }
-    tauri::async_runtime::spawn_blocking(|| {
-        let Some(bin) = helper_binary("tiro-hands") else { return json!({ "unsupported": true }) };
-        Command::new(bin)
-            .arg("screencheck")
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-            .ok()
-            .and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok())
-            .unwrap_or_else(|| json!({ "seen": false }))
-    })
-    .await
-    .unwrap_or_else(|_| json!({ "seen": false }))
+    json!({ "unsupported": true })
 }
 
 /// Shows the hands helper's panel under System Settings for one Privacy pane ("accessibility" or
@@ -519,31 +320,6 @@ async fn screen_check() -> Value {
 #[tauri::command]
 fn perm_guide(app: AppHandle, kind: Option<String>) {
     stop_perm_guide(&app);
-    #[cfg(target_os = "macos")]
-    {
-        let Some(kind) = kind.filter(|k| k == "accessibility" || k == "screen") else { return };
-        let Some(bin) = helper_binary("tiro-hands") else { return };
-        // The Tiro.app around this binary; a dev build has none, so the panel shows text only.
-        let bundle = std::env::current_exe()
-            .ok()
-            .and_then(|e| e.ancestors().find(|p| p.extension().is_some_and(|x| x == "app")).map(|p| p.to_string_lossy().into_owned()))
-            .unwrap_or_default();
-        let child = Command::new(bin)
-            .args(["guide", &kind, &bundle])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(log_stdio("sidekick-guide.log"))
-            .spawn();
-        match child {
-            Ok(c) => {
-                if let Ok(mut g) = app.state::<PermGuide>().0.lock() {
-                    *g = Some(c);
-                }
-            }
-            Err(e) => eprintln!("permission guide failed to start: {e}"),
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
     let _ = kind;
 }
 
@@ -758,8 +534,6 @@ fn show_panel(app: &AppHandle, rect: Option<tauri::Rect>, toggle: bool) {
                 .visible(false);
             match b.build() {
                 Ok(w) => {
-                    #[cfg(target_os = "macos")]
-                    over_fullscreen(&w);
                     let app2 = app.clone();
                     w.on_window_event(move |e| {
                         if let tauri::WindowEvent::Focused(false) = e {
@@ -824,45 +598,14 @@ fn place_panel(app: &AppHandle, w: &WebviewWindow, rect: Option<tauri::Rect>) ->
 
 // macOS converts physical sizes with the scale of the screen the window is on now, not the one it's going to,
 // so with mixed 1x/2x screens the panel came out half (or twice) its size. Its global space is in points.
-#[cfg(target_os = "macos")]
-fn set_panel_size(w: &WebviewWindow, pw: f64, h: f64, s: f64) {
-    let _ = w.set_size(tauri::LogicalSize::new(pw.round() / s, h.round() / s));
-}
-#[cfg(target_os = "macos")]
-fn set_panel_position(w: &WebviewWindow, x: f64, y: f64, s: f64) {
-    let _ = w.set_position(tauri::LogicalPosition::new(x.round() / s, y.round() / s));
-}
 // The scale of the screen the menu bar icon is on (1 when it can't be read). Looked up in pixels, an icon on a
 // Retina screen matched the screen to its right, or none at all.
-#[cfg(target_os = "macos")]
-fn tray_scale(app: &AppHandle) -> f64 {
-    use objc2::rc::Retained;
-    use objc2::runtime::AnyObject;
-    use objc2::msg_send;
-    let read = |t: &tauri::tray::TrayIcon| {
-        t.with_inner_tray_icon(|t| unsafe {
-            let item = t.ns_status_item()?;
-            let button: *mut AnyObject = msg_send![Retained::as_ptr(&item) as *mut AnyObject, button];
-            if button.is_null() { return None; }
-            let win: *mut AnyObject = msg_send![button, window];
-            if win.is_null() { return None; }
-            let k: f64 = msg_send![win, backingScaleFactor];
-            Some(k)
-        })
-        .ok()
-        .flatten()
-    };
-    app.tray_by_id("tiro").and_then(|t| read(&t)).filter(|k| *k > 0.0).unwrap_or(1.0)
-}
-#[cfg(not(target_os = "macos"))]
 fn tray_scale(_app: &AppHandle) -> f64 {
     1.0
 }
-#[cfg(not(target_os = "macos"))]
 fn set_panel_size(w: &WebviewWindow, pw: f64, h: f64, _s: f64) {
     let _ = w.set_size(tauri::PhysicalSize::new(pw.round() as u32, h.round() as u32));
 }
-#[cfg(not(target_os = "macos"))]
 fn set_panel_position(w: &WebviewWindow, x: f64, y: f64, _s: f64) {
     let _ = w.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
 }
@@ -872,13 +615,6 @@ fn set_panel_position(w: &WebviewWindow, x: f64, y: f64, _s: f64) {
 /// While the setup guide is open Tiro is a normal app (Dock icon, ⌘Tab), so it's easy to get
 /// back to after a trip to System Settings. Otherwise it lives only in the menu bar.
 fn set_dock(app: &AppHandle, visible: bool) {
-    #[cfg(target_os = "macos")]
-    {
-        let policy = if visible { tauri::ActivationPolicy::Regular } else { tauri::ActivationPolicy::Accessory };
-        if let Err(e) = app.set_activation_policy(policy) {
-            eprintln!("dock icon {}: {e}", if visible { "on" } else { "off" });
-        }
-    }
     let _ = (app, visible);
 }
 
@@ -908,10 +644,6 @@ fn open_onboarding(app: &AppHandle, mode: Option<&str>) {
         .accept_first_mouse(true)
         .focused(true)
         .background_color(tauri::window::Color(5, 16, 18, 255));
-    #[cfg(target_os = "macos")]
-    {
-        b = b.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
-    }
     match b.build() {
         Ok(w) => {
             ONBOARDING.store(true, Ordering::Relaxed);
@@ -940,21 +672,6 @@ fn activate_app(app: &AppHandle) {
 }
 
 fn activate_window(app: &AppHandle, label: &str) {
-    #[cfg(target_os = "macos")]
-    {
-        let ptr = app.get_webview_window(label).and_then(|w| w.ns_window().ok()).map(|p| p as usize);
-        let _ = app.run_on_main_thread(move || unsafe {
-            use objc2::runtime::{AnyObject, Bool};
-            use objc2::{class, msg_send};
-            if let Some(p) = ptr {
-                let win = p as *mut AnyObject;
-                let _: () = msg_send![win, orderFrontRegardless];
-                let _: () = msg_send![win, makeKeyWindow];
-            }
-            let ns_app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
-            let _: () = msg_send![ns_app, activateIgnoringOtherApps: Bool::YES];
-        });
-    }
     let _ = (app, label);
 }
 
@@ -995,12 +712,8 @@ fn cursor_global(app: &AppHandle) -> Option<(f64, f64)> {
 
 /// macOS reports the cursor in points times the main screen's scale; Windows in physical pixels as is.
 fn cursor_from_raw(x: f64, y: f64, primary_scale: f64) -> (f64, f64) {
-    if cfg!(target_os = "macos") {
-        (x / primary_scale, y / primary_scale)
-    } else {
-        let _ = primary_scale;
-        (x, y)
-    }
+    let _ = primary_scale;
+    (x, y)
 }
 
 /// The first thing a drawing marks on the real screen, [x, y, w, h] in global screen points.
@@ -1037,13 +750,6 @@ fn move_sidekick_to(app: &AppHandle, x: f64, y: f64) {
     }
     // Logical on macOS (one points space across screens); physical on Windows, where a logical size
     // would be converted with the old screen's scale.
-    #[cfg(target_os = "macos")]
-    {
-        let s = mon.scale_factor();
-        let _ = w.set_position(mon.position().to_logical::<f64>(s));
-        let _ = w.set_size(mon.size().to_logical::<f64>(s));
-    }
-    #[cfg(not(target_os = "macos"))]
     {
         let _ = w.set_position(*mon.position());
         // A pixel short, as when it was made (build_overlays).
@@ -1076,18 +782,12 @@ fn build_overlays(app: &AppHandle) -> tauri::Result<()> {
         // Linux: the page reports its click areas (host.js). Linux and Windows: the window stops a pixel short of the
         // screen, as one of exactly its size is taken for a fullscreen app (GNOME then hides its top bar; Windows
         // draws a strip by an auto-hidden taskbar, #58).
-        #[cfg(target_os = "linux")]
-        let init = format!("{init}window.TIRO_LINUX={:?};", linux::session().name());
-        #[cfg(not(target_os = "macos"))]
         let size = tauri::LogicalSize::new(size.width, size.height - 1.0);
         let label = format!("overlay-{gen}-{i}");
         if mine.iter().any(|id| id == "\"sidekick\"") {
             *SIDEKICK_OVERLAY.lock().unwrap() = Some(label.clone());
         }
         // COSMIC: built hidden, then shown unmanaged (linux.rs set_unmanaged).
-        #[cfg(target_os = "linux")]
-        let unmanaged = linux::unmanaged_overlay();
-        #[cfg(not(target_os = "linux"))]
         let unmanaged = false;
         let w = WebviewWindowBuilder::new(app, label, WebviewUrl::App("desktop.html".into()))
             .title("Tiro")
@@ -1109,218 +809,28 @@ fn build_overlays(app: &AppHandle) -> tauri::Result<()> {
             .initialization_script(init)
             .build()?;
         w.set_ignore_cursor_events(true)?;
-        #[cfg(target_os = "linux")]
-        if unmanaged {
-            linux::set_unmanaged(&w, true, false);
-        }
-        #[cfg(target_os = "macos")]
-        full_frame_rate(&w);
-        #[cfg(target_os = "macos")]
-        over_fullscreen(&w);
-        #[cfg(target_os = "windows")]
         exclude_from_capture(&w);
     }
     Ok(())
 }
 
-/// Tauri's always-on-top is the floating level, under games' own fullscreen windows (GLFW, e.g. Minecraft, puts
-/// them at the status bar level), and only fullScreenAuxiliary windows may join another app's fullscreen Space.
-/// So: one level above the status bar, allowed over fullscreen apps, like the voice helper's sidekick.
-#[cfg(target_os = "macos")]
-fn over_fullscreen(w: &WebviewWindow) {
-    let Ok(p) = w.ns_window() else { return };
-    let p = p as usize;
-    let _ = w.run_on_main_thread(move || unsafe {
-        use objc2::msg_send;
-        use objc2::runtime::AnyObject;
-        const FULL_SCREEN_AUXILIARY: usize = 1 << 8;
-        const STATUS_BAR_LEVEL: isize = 25;
-        let win = p as *mut AnyObject;
-        let behavior: usize = msg_send![win, collectionBehavior];
-        let _: () = msg_send![win, setCollectionBehavior: behavior | FULL_SCREEN_AUXILIARY];
-        let _: () = msg_send![win, setLevel: STATUS_BAR_LEVEL + 1];
-    });
-}
 
-/// WebKit caps page animation frames near 60 fps; on a 120 Hz screen that makes following the cursor
-/// visibly coarser than a native overlay, so the overlays lift the cap (a WebKit feature flag; a no-op
-/// if this WebKit doesn't have it).
-#[cfg(target_os = "macos")]
-fn full_frame_rate(w: &WebviewWindow) {
-    let _ = w.with_webview(|wv| unsafe {
-        use objc2::runtime::{AnyClass, AnyObject, Bool};
-        use objc2::{msg_send, sel};
-        let Some(cls) = AnyClass::get(c"WKPreferences") else { return };
-        let ok: Bool = msg_send![cls, respondsToSelector: sel!(_features)];
-        if !ok.as_bool() {
-            return;
-        }
-        let web = wv.inner() as *mut AnyObject;
-        let cfg: *mut AnyObject = msg_send![web, configuration];
-        let prefs: *mut AnyObject = msg_send![cfg, preferences];
-        let can: Bool = msg_send![prefs, respondsToSelector: sel!(_setEnabled:forFeature:)];
-        if prefs.is_null() || !can.as_bool() {
-            return;
-        }
-        let feats: *mut AnyObject = msg_send![cls, _features];
-        let n: usize = msg_send![feats, count];
-        for i in 0..n {
-            let f: *mut AnyObject = msg_send![feats, objectAtIndex: i];
-            let key: *mut AnyObject = msg_send![f, key];
-            if key.is_null() {
-                continue;
-            }
-            let c: *const std::ffi::c_char = msg_send![key, UTF8String];
-            if !c.is_null() && std::ffi::CStr::from_ptr(c).to_bytes() == b"PreferPageRenderingUpdatesNear60FPSEnabled" {
-                let _: () = msg_send![prefs, _setEnabled: Bool::NO, forFeature: f];
-            }
-        }
-    });
-}
 
-/// One NSScreen: its frame (points: x, width, height; y is flipped, so it isn't compared) and its camera notch,
-/// if any, as (x, w, h) in points relative to the screen's left edge and top.
-#[cfg(target_os = "macos")]
-#[derive(Clone, Copy, Debug)]
-struct ScreenNotch {
-    frame_x: f64,
-    frame_w: f64,
-    frame_h: f64,
-    notch: Option<(f64, f64, f64)>,
-}
 
-#[cfg(target_os = "macos")]
-static SCREEN_NOTCHES: Mutex<Vec<ScreenNotch>> = Mutex::new(Vec::new());
 
 /// Some screen has a camera notch (kept by refresh_screen_notches; always false off macOS).
 static HAS_NOTCH: AtomicBool = AtomicBool::new(false);
 
-#[cfg(target_os = "macos")]
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct NsPoint {
-    x: f64,
-    y: f64,
-}
 
-#[cfg(target_os = "macos")]
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct NsSize {
-    width: f64,
-    height: f64,
-}
 
-#[cfg(target_os = "macos")]
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct NsRect {
-    origin: NsPoint,
-    size: NsSize,
-}
 
-#[cfg(target_os = "macos")]
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct NsEdgeInsets {
-    top: f64,
-    left: f64,
-    bottom: f64,
-    right: f64,
-}
 
-#[cfg(target_os = "macos")]
-unsafe impl objc2::encode::Encode for NsPoint {
-    const ENCODING: objc2::encode::Encoding =
-        objc2::encode::Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
-}
 
-#[cfg(target_os = "macos")]
-unsafe impl objc2::encode::Encode for NsSize {
-    const ENCODING: objc2::encode::Encoding =
-        objc2::encode::Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
-}
 
-#[cfg(target_os = "macos")]
-unsafe impl objc2::encode::Encode for NsRect {
-    const ENCODING: objc2::encode::Encoding =
-        objc2::encode::Encoding::Struct("CGRect", &[NsPoint::ENCODING, NsSize::ENCODING]);
-}
 
-#[cfg(target_os = "macos")]
-unsafe impl objc2::encode::Encode for NsEdgeInsets {
-    const ENCODING: objc2::encode::Encoding = objc2::encode::Encoding::Struct(
-        "NSEdgeInsets",
-        &[f64::ENCODING, f64::ENCODING, f64::ENCODING, f64::ENCODING],
-    );
-}
 
-/// Reads every NSScreen's frame and camera notch into SCREEN_NOTCHES. AppKit: call on the main thread.
-/// Notch = the gap between the two top auxiliary areas, below the menu bar (safeAreaInsets.top > 0).
-/// Returns true when whether any screen has a notch changed.
-#[cfg(target_os = "macos")]
-fn refresh_screen_notches() -> bool {
-    use objc2::runtime::{AnyClass, AnyObject, Bool};
-    use objc2::{msg_send, sel};
-    let mut out = Vec::new();
-    unsafe {
-        let Some(cls) = AnyClass::get(c"NSScreen") else { return false };
-        let screens: *mut AnyObject = msg_send![cls, screens];
-        if screens.is_null() {
-            return false;
-        }
-        let n: usize = msg_send![screens, count];
-        for i in 0..n {
-            let s: *mut AnyObject = msg_send![screens, objectAtIndex: i];
-            if s.is_null() {
-                continue;
-            }
-            let frame: NsRect = msg_send![s, frame];
-            let mut notch = None;
-            // safeAreaInsets and the auxiliary areas are macOS 12+.
-            let has_insets: Bool = msg_send![s, respondsToSelector: sel!(safeAreaInsets)];
-            let has_aux: Bool = msg_send![s, respondsToSelector: sel!(auxiliaryTopLeftArea)];
-            let has_aux_r: Bool = msg_send![s, respondsToSelector: sel!(auxiliaryTopRightArea)];
-            if has_insets.as_bool() && has_aux.as_bool() && has_aux_r.as_bool() {
-                let insets: NsEdgeInsets = msg_send![s, safeAreaInsets];
-                if insets.top > 0.0 {
-                    let left: NsRect = msg_send![s, auxiliaryTopLeftArea];
-                    let right: NsRect = msg_send![s, auxiliaryTopRightArea];
-                    if left.size.width > 0.0 && right.size.width > 0.0 {
-                        let left_end = left.origin.x + left.size.width;
-                        let w = right.origin.x - left_end;
-                        if w > 0.0 && w <= 400.0 {
-                            notch = Some((left_end - frame.origin.x, w, insets.top));
-                        }
-                    }
-                }
-            }
-            out.push(ScreenNotch {
-                frame_x: frame.origin.x,
-                frame_w: frame.size.width,
-                frame_h: frame.size.height,
-                notch,
-            });
-        }
-    }
-    let any = out.iter().any(|s| s.notch.is_some());
-    *SCREEN_NOTCHES.lock().unwrap() = out;
-    HAS_NOTCH.swap(any, Ordering::SeqCst) != any
-}
 
-/// The notch of the screen whose frame matches a monitor (logical x, width, height in points), as a JS object
-/// literal, or `null`. Reads the cache SCREEN_NOTCHES, so it's safe from any thread.
-#[cfg(target_os = "macos")]
-fn notch_js(x: f64, w: f64, h: f64) -> String {
-    let all = SCREEN_NOTCHES.lock().unwrap();
-    let hit = all.iter().find(|s| (s.frame_x - x).abs() <= 1.0 && (s.frame_w - w).abs() <= 1.0 && (s.frame_h - h).abs() <= 1.0);
-    match hit.and_then(|s| s.notch) {
-        Some((nx, nw, nh)) => format!("{{x:{nx:.1},w:{nw:.1},h:{nh:.1}}}"),
-        None => "null".into(),
-    }
-}
 
-#[cfg(not(target_os = "macos"))]
 fn notch_js(_x: f64, _w: f64, _h: f64) -> String {
     "null".into()
 }
@@ -1385,10 +895,6 @@ fn watch_screens(app: AppHandle) {
         // Monitor queries belong on the main thread (see pump_cursor), and so does making windows.
         let _ = app.run_on_main_thread(move || {
             // Notches only change with the screens, so this 3 s pass keeps the cache that safe_js reads.
-            #[cfg(target_os = "macos")]
-            if refresh_screen_notches() {
-                to_sidecar(&app2, &json!({ "type": "notch_screen", "on": HAS_NOTCH.load(Ordering::SeqCst) }));
-            }
             let Ok(monitors) = app2.available_monitors() else { return };
             let now = screens(&monitors);
             let have = app2.webview_windows().keys().filter(|l| is_overlay(l)).count();
@@ -1445,12 +951,6 @@ fn pump_cursor(app: AppHandle) {
                             continue;
                         }
                         let (Ok(pos), Ok(scale)) = (w.inner_position(), w.scale_factor()) else { continue };
-                        #[cfg(target_os = "macos")]
-                        let (x, y) = {
-                            let o = pos.to_logical::<f64>(scale);
-                            (cur.0 - o.x, cur.1 - o.y)
-                        };
-                        #[cfg(not(target_os = "macos"))]
                         let (x, y) = ((cur.0 - pos.x as f64) / scale, (cur.1 - pos.y as f64) / scale);
                         let _ = w.eval(format!("window.__tiroClick&&__tiroClick({x:.1},{y:.1},{t:.1})"));
                     }
@@ -1488,12 +988,6 @@ fn pump_cursor(app: AppHandle) {
             let (Ok(pos), Ok(scale)) = (w.inner_position(), w.scale_factor()) else { continue };
             // In the overlay's CSS px. macOS: global points minus the window's origin in points (screens
             // can have different scales). Windows: physical pixels, scaled by this window's screen.
-            #[cfg(target_os = "macos")]
-            let (x, y) = {
-                let o = pos.to_logical::<f64>(scale);
-                (cur.0 - o.x, cur.1 - o.y)
-            };
-            #[cfg(not(target_os = "macos"))]
             let (x, y) = ((cur.0 - pos.x as f64) / scale, (cur.1 - pos.y as f64) / scale);
             if sent.get(&label) == Some(&(x, y)) {
                 continue;
@@ -1591,31 +1085,8 @@ fn rotate_log(p: &std::path::Path) {
 fn login_item(app: &AppHandle, set: Option<bool>) {
     let exe = std::env::current_exe().unwrap_or_default();
     // Linux: an AppImage runs from a temporary mount, so where it is means the AppImage file.
-    #[cfg(target_os = "linux")]
-    let exe = linux::appimage().unwrap_or(exe);
     let exe_s = exe.to_string_lossy().replace('\\', "/");
     let installed = !exe_s.contains("/target/") && !exe_s.starts_with("/Volumes/") && !exe_s.contains("/AppTranslocation/") && !exe_s.starts_with("/tmp/");
-    #[cfg(target_os = "macos")]
-    let (supported, on, approval) = {
-        use objc2_service_management::{SMAppService, SMAppServiceStatus};
-        let in_apps = exe_s.starts_with("/Applications/") || exe_s.contains("/Applications/Tiro.app/");
-        if !objc2::available!(macos = 13.0) || !installed || !in_apps {
-            (false, false, false)
-        } else {
-            // SAFETY: ServiceManagement calls with no arguments beyond the shared main-app service.
-            unsafe {
-                let svc = SMAppService::mainAppService();
-                match set {
-                    Some(true) if svc.status() != SMAppServiceStatus::Enabled => { let _ = svc.registerAndReturnError(); }
-                    Some(false) if svc.status() != SMAppServiceStatus::NotRegistered => { let _ = svc.unregisterAndReturnError(); }
-                    _ => {}
-                }
-                let st = svc.status();
-                (true, st == SMAppServiceStatus::Enabled || st == SMAppServiceStatus::RequiresApproval, st == SMAppServiceStatus::RequiresApproval)
-            }
-        }
-    };
-    #[cfg(windows)]
     let (supported, on, approval) = {
         // The per-user Run key: what Task Manager's Startup apps lists and can switch off.
         const KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
@@ -1639,13 +1110,6 @@ fn login_item(app: &AppHandle, set: Option<bool>) {
             (true, on, false)
         }
     };
-    #[cfg(target_os = "linux")]
-    let (supported, on, approval) = {
-        let (supported, on) = linux::login_item(set, installed);
-        (supported, on, false)
-    };
-    #[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
-    let (supported, on, approval) = { let _ = (set, installed); (false, false, false) };
     to_sidecar(app, &json!({ "type": "login_item_status", "supported": supported, "on": on, "approval": approval }));
 }
 
@@ -1656,9 +1120,6 @@ fn update(app: &AppHandle, install: bool) {
     let app = app.clone();
     // Linux: only an AppImage can swap itself in place. A copy from a .deb or .rpm is told about the new version
     // (page: true) and "install" opens the releases page instead.
-    #[cfg(target_os = "linux")]
-    let by_page = linux::appimage().is_none();
-    #[cfg(not(target_os = "linux"))]
     let by_page = false;
     tauri::async_runtime::spawn(async move {
         let status = |state: &str, extra: Value| {
@@ -1675,11 +1136,6 @@ fn update(app: &AppHandle, install: bool) {
         match found {
             Ok(None) => status("none", json!({})),
             Ok(Some(u)) if !install => status("available", json!({ "version": u.version, "page": by_page })),
-            #[cfg(target_os = "linux")]
-            Ok(Some(u)) if by_page => {
-                linux::open_releases_page();
-                status("page", json!({ "version": u.version }));
-            }
             Ok(Some(u)) => {
                 status("downloading", json!({ "version": u.version }));
                 match u.download_and_install(|_, _| {}, || {}).await {
@@ -1759,19 +1215,6 @@ fn handle_sidecar(app: &AppHandle, msg: Value) {
         // wait: seconds the mic waits for words (auto-listen's setting, #44).
         Some("listen") => to_voice(app, &json!({ "cmd": "listen", "wait": msg.get("wait").cloned().unwrap_or(Value::Null) })),
         // Linux: the sidecar's screenshot and copy go through the shell (GTK, X11 and the desktop portal).
-        #[cfg(target_os = "linux")]
-        Some("screenshot") => {
-            if let Some(file) = msg.get("file").and_then(Value::as_str) {
-                linux::screenshot(app, msg.get("id").cloned().unwrap_or(Value::Null), file.to_owned());
-            }
-        }
-        #[cfg(target_os = "linux")]
-        Some("clipboard") => {
-            if let Some(text) = msg.get("text").and_then(Value::as_str) {
-                linux::set_clipboard(text);
-            }
-            to_sidecar(app, &json!({ "type": "clipboard_done", "id": msg.get("id"), "ok": msg.get("text").is_some_and(Value::is_string) }));
-        }
         // `tiro --talk` (Linux): start a take, or send the one under way.
         Some("talk_toggle") => to_voice(app, &json!({ "cmd": "toggle" })),
         // Tiro is answering or speaking: the wake word waits, so it can't wake itself.
@@ -1838,18 +1281,14 @@ fn second_launch(app: &AppHandle, args: &[String]) {
         Some("panel") => show_panel(app, None, false),
         // The sidecar's to do: it knows whether voice is on and ready, and owns the ask bubble and the list.
         Some(action) => to_sidecar(app, &json!({ "type": "cli", "action": action })),
-        None if cfg!(target_os = "linux") => show_panel(app, None, false),
-        None if cfg!(windows) => {
+        None => {
             to_overlays(app, &json!({ "kind": "summon" }));
             show_panel(app, None, false);
         }
-        None => to_overlays(app, &json!({ "kind": "summon" })),
     }
 }
 
 fn main() {
-    #[cfg(target_os = "linux")]
-    linux::init();
     tauri::Builder::default()
         // Must be the first plugin. A second launch (say, straight from the DMG) quits and tells this one what it wanted.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -1870,12 +1309,6 @@ fn main() {
             id => to_sidecar(app, &json!({ "type": "menu", "id": id })),
         })
         .setup(|app| {
-            #[cfg(target_os = "macos")]
-            {
-                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-                // Hidden (no Dock, no visible menu bar) but gives text fields Cmd+V/C/X/A/Z.
-                app.set_menu(Menu::default(app.handle())?)?;
-            }
 
             let starting = MenuItem::with_id(app, "status", "Starting Tiro…", false, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Tiro", true, None::<&str>)?;
@@ -1890,11 +1323,6 @@ fn main() {
                         show_panel(tray.app_handle(), Some(rect), true);
                     }
                 });
-            #[cfg(target_os = "macos")]
-            {
-                tray = tray.icon(tray_image()).icon_as_template(true);
-            }
-            #[cfg(not(target_os = "macos"))]
             if let Some(icon) = app.default_window_icon() {
                 tray = tray.icon(icon.clone());
             }
@@ -1907,15 +1335,9 @@ fn main() {
             if let Err(e) = set_hotkey(1, "Control+Alt+KeyA") {
                 eprintln!("could not register the area shortcut: {e}");
             }
-            #[cfg(target_os = "macos")]
-            refresh_screen_notches();
             build_overlays(app.handle())?;
             pump_cursor(app.handle().clone());
             watch_screens(app.handle().clone());
-            #[cfg(target_os = "macos")]
-            snapshot::watch_screenshots(app.handle().clone());
-            #[cfg(target_os = "macos")]
-            fullscreen::watch(app.handle().clone());
             spawn_sidecar(app.handle());
             Ok(())
         })

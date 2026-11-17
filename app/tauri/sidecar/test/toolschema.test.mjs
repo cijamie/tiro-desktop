@@ -5,8 +5,8 @@ import { createTools, shellFor } from '../tools.mjs';
 
 const noop = async () => {};
 const { tools } = createTools({ allowActions: false, ui: () => {}, ask: async () => false, openUrl: noop, onCommitments: noop, showList: noop, fmtWhen: String, commitmentsText: () => '', userName: 'Test', focus: { start: () => 'ok', stop: () => 'ok' } });
-// Focus mode's tools are there where the window in front can be read (focus given), and checked below with the rest.
-assert.ok(tools.some((t) => t.name === 'start_focus') && tools.some((t) => t.name === 'stop_focus'), 'focus tools');
+// Focus mode was removed with the split from Roamies.
+assert.ok(!tools.some((t) => /focus/.test(t.name)), 'no focus tools');
 
 // Regression: the old fetch_url's url had format "uri", which OpenAI strict schemas reject, failing every OpenAI request.
 const formats = [];

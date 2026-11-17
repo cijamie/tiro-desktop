@@ -311,7 +311,7 @@
   // The header's Tiro: your look, reacting to what's going on. A short line beside it when something changes.
   // The same size and detail as the look tiles (fewer dots than that and the faces turn to noise).
   const avatar = liveTiro($('avatar'), 100, 74, { y: 0.55 });
-  const QUIPS = { classic: 'Tiro, at your service.', jarvis: 'At your service.', anime: 'Yay, hi hi!', sarah: 'Hey, nice to meet you!', adrian: "Alright, let's do this.", rita: 'Shall we get to work?' };
+  const QUIPS = { classic: 'Tiro, at your service.' };
   let quipTimer = 0, seen = { look: null, update: null, opened: 0 };
   function quip(text, secs = 2.6) {
     const q = $('saying'), n = $('by');
@@ -556,7 +556,7 @@
   }
   function appearancePage() {
     return [
-      group('Look', 'Each look has its own name and voice.', null, lookTiles()),
+      state.looks.length > 1 ? group('Look', 'Each look has its own name and voice.', null, lookTiles()) : null,
       group('Size', 'How big I am on your screen.', null, picks('Size', state.sizes, state.size, (x) => act(`size:${x}`), 'size', SIZE_TIPS)),
     ];
   }
@@ -723,15 +723,10 @@
   }
   // Things I do on my own through the day.
   function routinesPage() {
-    const f = state.focus;
     return [
       group('Routines', 'Things I do on my own through the day.', null,
         state.brief ? toggle('Morning briefing', 'The first time you talk to me each day, I start with what’s due.', state.brief.on, () => act('morningbrief'), 'morningbrief') : null,
-        state.brief?.on && state.brief.canTodoist ? toggle('Include Todoist', 'I read your Todoist window (opening it if needed). Stay signed in.', state.brief.todoist, () => act('brieftodoist'), 'brieftodoist') : null,
-        f ? el('div', { className: 'setting' },
-          el('span', {}, f.until ? 'Focus block running' : 'Focus distractions',
-            el('small', { textContent: f.until ? `Until ${new Date(f.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${f.task ? ` · ${f.task}` : ''}` : `Say “focus for 30 minutes”. I watch for: ${f.list.slice(0, 4).join(', ')}${f.list.length > 4 ? '…' : ''}` })),
-          f.until ? link('Stop', () => act('focusstop'), { k: 'focusstop', aria: 'Stop the focus block' }) : link('Edit', () => act('distractions'), { k: 'distractions', aria: 'Edit the distraction list' })) : null),
+        state.brief?.on && state.brief.canTodoist ? toggle('Include Todoist', 'I read your Todoist window (opening it if needed). Stay signed in.', state.brief.todoist, () => act('brieftodoist'), 'brieftodoist') : null),
     ];
   }
   // What I may do, and when I start.
@@ -742,7 +737,6 @@
         state.notch != null ? group('Where I appear', 'On a Mac with a notch, I open from the top of the screen.', null,
           picks('Where I appear', [['off', 'Beside the cursor'], ['drop', 'Capsule'], ['spread', 'Notch']], state.notch, (x) => act(`notch_${x}`), 'notch',
             { off: 'Everything beside your cursor, as usual.', spread: 'Everything in the notch, widening sideways.', drop: 'Everything in a capsule that drops from the notch.' })) : null,
-        state.gameMode != null ? toggle('Game mode', 'In a fullscreen game, I move to a panel at the edge of the screen.', state.gameMode, () => act('gamemode'), 'gamemode') : null,
         toggle('Allow file edits and commands', 'Change files and run commands', state.actions, () => act('actions'), 'actions'),
         state.actions ? toggle('Skip Allow prompts', 'Go ahead without asking first. Blocked steps stay blocked.', state.skipAllow, () => act('skipallow'), 'skipallow') : null,
         state.login ? toggle('Open at login', null, state.login.on, () => act('login'), 'login') : null,

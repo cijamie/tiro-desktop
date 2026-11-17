@@ -225,11 +225,6 @@ pub(crate) fn set_esc(app: &AppHandle, label: &str, on: bool) {
             // global-hotkey's X11 backend queues the ungrab without sending it, so Esc stayed grabbed from every app
             // until the next registration grabbed it again (#67). Registering anything sends the queue: a combo no one
             // presses (it stays registered, so later calls only send the queue and report it's already there).
-            #[cfg(target_os = "linux")]
-            {
-                use global_hotkey::hotkey::Modifiers;
-                let _ = manager.register(HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SHIFT | Modifiers::SUPER), Code::F12));
-            }
         }
     });
 }

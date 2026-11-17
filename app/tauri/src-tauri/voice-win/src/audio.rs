@@ -3,7 +3,6 @@
 // metered for the listening animation.
 
 use crate::{Ev, RATE};
-#[cfg(any(windows, target_os = "linux"))]
 use crate::log;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -102,12 +101,10 @@ impl MicError {
 
 // E_ACCESSDENIED, which cpal passes on as an unclassified backend error: what a Windows desktop app gets when a
 // privacy switch, a policy or security software keeps it off the microphone.
-#[cfg(any(windows, target_os = "linux"))]
 const ACCESS_DENIED: &str = "(os error -2147024891)";
 
 /// A cpal error as a MicError, or None for a glitch the stream carries on through (a dropped buffer, a refused
 /// priority boost, a rerouted default), which must not end the take. `opening`: while starting, not mid-take.
-#[cfg(any(windows, target_os = "linux"))]
 pub fn mic_problem(e: &cpal::Error, opening: bool) -> Option<MicError> {
     use cpal::ErrorKind::*;
     let detail = e.to_string();
@@ -123,14 +120,12 @@ pub fn mic_problem(e: &cpal::Error, opening: bool) -> Option<MicError> {
     Some(MicError { reason, detail })
 }
 
-#[cfg(any(windows, target_os = "linux"))]
 fn open_failed(e: cpal::Error) -> MicError {
     mic_problem(&e, true).unwrap_or_else(|| MicError::new("failed", e.to_string()))
 }
 
 /// Recording stops when this is dropped.
 pub struct Source {
-    #[cfg(any(windows, target_os = "linux"))]
     _stream: Option<cpal::Stream>,
     stop: Arc<AtomicBool>,
 }
@@ -176,13 +171,11 @@ pub fn play_file(path: &Path, mut sink: Sink) -> Result<Source, String> {
         }
     });
     Ok(Source {
-        #[cfg(any(windows, target_os = "linux"))]
         _stream: None,
         stop,
     })
 }
 
-#[cfg(any(windows, target_os = "linux"))]
 pub fn has_input() -> bool {
     use cpal::traits::HostTrait;
     cpal::default_host().default_input_device().is_some()
@@ -192,20 +185,17 @@ pub fn has_input() -> bool {
 pub static CHOSEN: Mutex<Option<String>> = Mutex::new(None);
 
 /// Names once each, in the order listed: the picker can't tell two mics with one name apart anyway.
-#[cfg(any(windows, target_os = "linux", test))]
 pub fn unique(names: impl IntoIterator<Item = String>) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     names.into_iter().filter(|n| !n.is_empty() && seen.insert(n.clone())).collect()
 }
 
-#[cfg(any(windows, target_os = "linux"))]
 fn name_of(d: &cpal::Device) -> Option<String> {
     use cpal::traits::DeviceTrait;
     d.description().ok().map(|x| x.name().to_owned())
 }
 
 /// {"type":"mics"}: every input by name, the default's, and the pick (the panel's mic picker).
-#[cfg(any(windows, target_os = "linux"))]
 pub fn mics() -> serde_json::Value {
     use cpal::traits::HostTrait;
     let host = cpal::default_host();
@@ -215,14 +205,9 @@ pub fn mics() -> serde_json::Value {
     serde_json::json!({ "type": "mics", "list": list, "default": default, "chosen": CHOSEN.lock().unwrap().clone().unwrap_or_default() })
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
-pub fn mics() -> serde_json::Value {
-    serde_json::json!({ "type": "mics", "list": [], "default": "", "chosen": "" })
-}
 
 /// Every microphone the system lists, the default one, and the format each records in, or why it can't (--devices,
 /// for diagnostics reports).
-#[cfg(any(windows, target_os = "linux"))]
 pub fn devices() -> serde_json::Value {
     use cpal::traits::{DeviceTrait, HostTrait};
     use serde_json::json;
@@ -244,17 +229,8 @@ pub fn devices() -> serde_json::Value {
     json!({ "type": "devices", "host": host.id().name(), "default": host.default_input_device().map(|d| about(&d)), "inputs": inputs })
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
-pub fn devices() -> serde_json::Value {
-    serde_json::json!({ "type": "devices", "unsupported": true })
-}
 
-#[cfg(not(any(windows, target_os = "linux")))]
-pub fn has_input() -> bool {
-    false
-}
 
-#[cfg(any(windows, target_os = "linux"))]
 pub fn open_mic(mut sink: Sink) -> Result<Source, MicError> {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use cpal::{FromSample, SampleFormat, SizedSample, I24, U24};
@@ -312,8 +288,7 @@ pub fn open_mic(mut sink: Sink) -> Result<Source, MicError> {
     Ok(Source { _stream: Some(stream), stop: Arc::new(AtomicBool::new(false)) })
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
-pub fn open_mic(_sink: Sink) -> Result<Source, MicError> {
+ MicError> {
     Err(MicError::new("failed", "the microphone is only wired up on Windows and Linux (use --test-audio)"))
 }
 
@@ -349,7 +324,6 @@ mod tests {
     }
 
     // Each failure gets the reason the user is told; glitches must not end a take ("I can't find a microphone").
-    #[cfg(any(windows, target_os = "linux"))]
     #[test]
     fn mic_errors_get_a_reason_and_glitches_are_ignored() {
         use cpal::{Error, ErrorKind};

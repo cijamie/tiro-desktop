@@ -12,7 +12,7 @@ const size = (list) => list.reduce((n, t) => n + JSON.stringify({ name: t.name, 
 // Every Lite tool is a real one (about_tiro is added by sidekick.mjs), and none of them sees, acts in apps or draws.
 const lite = tools.filter((t) => LITE_TOOLS.has(t.name));
 assert.deepEqual(lite.map((t) => t.name).sort(), [...LITE_TOOLS].filter((n) => n !== 'about_tiro').sort());
-for (const n of ['draw', 'take_screenshot', 'act_in_app', 'read_window', 'run_command', 'write_file', 'read_file', 'start_focus']) assert.ok(!LITE_TOOLS.has(n), n);
+for (const n of ['draw', 'take_screenshot', 'act_in_app', 'read_window', 'run_command', 'write_file', 'read_file']) assert.ok(!LITE_TOOLS.has(n), n);
 // A fraction of what the full tool list costs on every request.
 assert.ok(size(lite) < size(tools) / 4, `lite tools ${size(lite)} chars vs ${size(tools)}`);
 assert.ok(LITE_BUDGET <= 16_000 && LITE_TURNS <= 8);

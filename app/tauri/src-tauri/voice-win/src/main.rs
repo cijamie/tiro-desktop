@@ -656,7 +656,6 @@ fn main() {
     }
     let model = arg(&args, "--model").map(PathBuf::from);
     // Cursor positions and captures in real pixels on every monitor (ink.rs turns them into screen points).
-    #[cfg(windows)]
     // SAFETY: a plain call at startup, before any window or thread exists.
     unsafe {
         windows_sys::Win32::UI::HiDpi::SetProcessDpiAwarenessContext(windows_sys::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);

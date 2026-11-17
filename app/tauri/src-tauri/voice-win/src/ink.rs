@@ -303,7 +303,6 @@ fn emit(v: Value) {
     crate::emit(v);
 }
 
-#[cfg(windows)]
 mod imp {
     use super::{capture_box, downscale, draw_strokes, marks, Pt, PEN};
     use serde_json::{json, Value};
@@ -406,16 +405,6 @@ mod imp {
 }
 
 // Elsewhere there's no cursor to follow and no screen to capture.
-#[cfg(not(windows))]
-mod imp {
-    use super::Pt;
-    pub fn cursor() -> Option<(Pt, usize)> {
-        None
-    }
-    pub fn capture(_: &[Vec<Pt>], _: usize) -> Option<serde_json::Value> {
-        None
-    }
-}
 
 #[cfg(test)]
 mod tests {
