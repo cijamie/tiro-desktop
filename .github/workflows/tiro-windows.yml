@@ -1,5 +1,6 @@
-# Tiro: builds the Windows installer on every push to main (or by hand: Actions > Tiro Windows > Run workflow) and
-# publishes it as a release, v0.2.<run number>, with latest.json for the app's own updater. Installed copies check
+# Tiro: tests and builds the Windows installer on every push. Only a push to main (or a run by hand on main: Actions >
+# Tiro Windows > Run workflow) publishes it as a release, v0.2.<run number>, with latest.json for the app's own updater;
+# other branches just have to build and pass the tests. Installed copies check
 # about 20 s after starting and every 6 hours, and offer "Install and Restart" from the tray icon.
 # Signing: secrets TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD and TAURI_UPDATER_PUBKEY (the .pub
 # file). Without them the installer still builds, just without updates. Unsigned for Windows itself, like Roamies:
@@ -8,14 +9,14 @@ name: Tiro Windows
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: tiro-windows
+  group: tiro-windows-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -42,6 +43,10 @@ jobs:
       - name: Test sidecar
         working-directory: showcase/tauri/sidecar
         run: npm test
+
+      - name: Check the workflows' inline node scripts
+        working-directory: ${{ github.workspace }}
+        run: node .github/scripts/check-inline-node.mjs
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -111,9 +116,19 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: ./build.sh release --target x86_64-pc-windows-msvc
 
+      # The shell's and the helpers' own checks, then the hands helper against a real app (Notepad).
+      - name: Test the app and its helpers
+        run: |
+          cargo test --release --locked --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
+          cargo test --release --locked --manifest-path src-tauri/voice-win/Cargo.toml --target x86_64-pc-windows-msvc
+          cargo test --release --locked --manifest-path src-tauri/hands-win/Cargo.toml --target x86_64-pc-windows-msvc
+          src-tauri/binaries/roamies-hands-x86_64-pc-windows-msvc.exe --self-test
+          src-tauri/binaries/roamies-hands-x86_64-pc-windows-msvc.exe --smoke
+
       # A normal (latest) release, so github.com/…/releases/latest/download/latest.json is always the newest one.
       # Tiro-setup.exe is the same installer under a name that never changes. Only the 5 newest builds are kept.
       - name: Publish the release
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
