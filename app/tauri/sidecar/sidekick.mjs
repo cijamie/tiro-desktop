@@ -2511,15 +2511,17 @@ sendKeys();
 send({ type: 'login_item' });
 if (MAC) send({ type: 'notch_screen' });
 logLine('start', { version: VERSION, platform: process.platform, ...(LINUX ? { session: SESSION } : {}), model: config.model, ...(MIGRATED.length ? { moved: MIGRATED } : {}) });
-// Windows 11: the tray icon is shown next to the clock once (wintray.mjs); after that, hiding it again is up to them.
-// Explorer adds its entry a moment after the icon appears, so it's looked for a few times.
-if (process.platform === 'win32' && process.env.TIRO_EXE && !config.trayShown) {
+// Windows 11: the tray icon is shown next to the clock once per program (wintray.mjs); after that, hiding it again
+// is up to them. Remembered by the program's path, not a yes/no: the settings copied over from Roamies said
+// trayShown: true for roamies.exe, so tiro.exe's icon was never shown. Explorer adds its entry a moment after the
+// icon appears, so it's looked for a few times.
+if (process.platform === 'win32' && process.env.TIRO_EXE && config.trayShownFor?.toLowerCase() !== process.env.TIRO_EXE.toLowerCase()) {
   let tries = 0;
   const tryShow = () => showTrayIcon({ exe: process.env.TIRO_EXE, exec: runInput }).then((r) => {
     tries++;
     if (r === 'missing' && tries < 10) return void setTimeout(tryShow, 3000).unref?.();
     logLine('tray_show', { result: r, tries });
-    if (r === 'shown') { config.trayShown = true; saveConfig(); }
+    if (r === 'shown') { config.trayShownFor = process.env.TIRO_EXE; delete config.trayShown; saveConfig(); }
   }).catch((e) => console.error('tray show', e.message));
   setTimeout(tryShow, 2000).unref?.();
 }

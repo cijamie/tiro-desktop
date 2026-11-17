@@ -48,12 +48,25 @@ export function migrateFromRoamies({ home = HOME, local = process.env.LOCALAPPDA
     fs.renameSync(from, to);
     return true;
   });
+  // Only the models folder moves: %LOCALAPPDATA%\Tiro is also where the installer puts tiro.exe (and
+  // %LOCALAPPDATA%\Roamies held roamies.exe), so the folder itself always exists by the time this runs. Checking
+  // for it (as 0.2.8 did) meant the model never moved and voice, and with it hold-to-talk, stayed off.
+  // A model counts as there once ready.json is (voicemodel.mjs); a half-finished download in the new place gives
+  // way to a finished one in the old.
   step('speech model', () => {
     if (!local) return false;
-    const from = path.join(local, 'Roamies'), to = path.join(local, 'Tiro');
-    if (fs.existsSync(to) || !fs.existsSync(from)) return false;
-    fs.renameSync(from, to);
-    return true;
+    const from = path.join(local, 'Roamies', 'models'), to = path.join(local, 'Tiro', 'models');
+    if (!fs.existsSync(from)) return false;
+    let moved = false;
+    for (const id of fs.readdirSync(from)) {
+      const src = path.join(from, id), dst = path.join(to, id);
+      if (!fs.existsSync(path.join(src, 'ready.json')) || fs.existsSync(path.join(dst, 'ready.json'))) continue;
+      fs.rmSync(dst, { recursive: true, force: true });
+      fs.mkdirSync(to, { recursive: true });
+      fs.renameSync(src, dst);
+      moved = true;
+    }
+    return moved;
   });
   return done;
 }

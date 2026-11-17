@@ -17,7 +17,13 @@ put(path.join(home, '.gg', 'sidekick', 'secrets.json'), 'secret');
 put(path.join(home, '.gg', 'sidekick', 'sessions', 'a.json'), 'chat');
 put(path.join(home, '.gg', 'auth.json'), 'sign-in');
 put(path.join(home, 'Roamies', 'Agents', 'x', 'out.txt'), 'made');
-put(path.join(local, 'Roamies', 'parakeet', 'model.onnx'), 'model');
+// The real layout: each folder also holds the installed app, so the new one exists before the first start.
+put(path.join(local, 'Roamies', 'roamies.exe'), 'old app');
+put(path.join(local, 'Roamies', 'models', 'parakeet', 'model.onnx'), 'model');
+put(path.join(local, 'Roamies', 'models', 'parakeet', 'ready.json'), '{}');
+put(path.join(local, 'Roamies', 'models', 'half', 'part.onnx'), 'unfinished');
+put(path.join(local, 'Tiro', 'tiro.exe'), 'new app');
+put(path.join(local, 'Tiro', 'models', 'parakeet', 'encoder.partial'), 'started again after the update');
 
 const done = migrateFromRoamies({ home, local });
 assert.deepEqual(done, ['settings', 'data', 'agents folder', 'speech model']);
@@ -29,7 +35,11 @@ assert.equal(read('.gg', 'sidekick.json'), '{"look":"classic"}', 'the old copy s
 assert.ok(fs.existsSync(path.join(home, '.gg', 'auth.json')) && !fs.existsSync(path.join(home, '.tiro', 'auth.json')), 'sign-in stays in ~/.gg');
 assert.equal(read('Tiro', 'Agents', 'x', 'out.txt'), 'made');
 assert.ok(!fs.existsSync(path.join(home, 'Roamies')), 'the agents folder moves');
-assert.equal(read('AppData', 'Local', 'Tiro', 'parakeet', 'model.onnx'), 'model');
+assert.equal(read('AppData', 'Local', 'Tiro', 'models', 'parakeet', 'model.onnx'), 'model', 'the model moves even though the app folder exists');
+assert.ok(!fs.existsSync(path.join(local, 'Tiro', 'models', 'parakeet', 'encoder.partial')), 'a half download gives way to the finished model');
+assert.ok(!fs.existsSync(path.join(local, 'Tiro', 'models', 'half')), 'an unfinished old download stays behind');
+assert.equal(read('AppData', 'Local', 'Tiro', 'tiro.exe'), 'new app', 'the installed app is left alone');
+assert.equal(read('AppData', 'Local', 'Roamies', 'roamies.exe'), 'old app');
 
 // Second start: nothing to do, and newer settings are never overwritten.
 fs.writeFileSync(path.join(home, '.tiro', 'sidekick.json'), '{"look":"jarvis"}');
