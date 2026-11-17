@@ -2,7 +2,7 @@
 // same events the PC's own agent gives. The server is faked. Run: npm test
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { brainOf, noteTurn, pcTools, serverEvents, takeoverTool, tiroMemory, toServer } from '../serverbrain.mjs';
+import { brainOf, noteTurn, parseArgs, pcTools, serverEvents, takeoverTool, tiroMemory, toServer } from '../serverbrain.mjs';
 
 assert.equal(brainOf({}), 'server', 'the server by default');
 assert.equal(brainOf({ brain: 'pc' }), 'pc');
@@ -22,6 +22,13 @@ const all = [...local, takeoverTool((t) => { job = t; })];
 }
 
 assert.equal(toServer('text'), 'text');
+assert.equal(toServer({ content: 'plain' }), 'plain');
+{
+  const t = { name: 'x', parameters: z.object({ n: z.number().default(3), app: z.string().optional() }) };
+  assert.deepEqual(parseArgs(t, {}), { n: 3 }, 'defaults filled in');
+  assert.deepEqual(parseArgs(t, { app: null }), { n: 3 }, 'null as not given');
+  assert.throws(() => parseArgs(t, { n: 'many' }), /don't fit x/);
+}
 assert.deepEqual(toServer({ content: [{ type: 'text', text: 'Shot' }, { type: 'image', mediaType: 'image/jpeg', data: 'AAA' }] }),
   [{ type: 'text', text: 'Shot' }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAA' } }]);
 

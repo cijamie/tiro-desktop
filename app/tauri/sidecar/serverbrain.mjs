@@ -50,9 +50,21 @@ export function pcTools(tools, { allowActions = false } = {}) {
   return out;
 }
 
+// Arguments checked against the tool's own schema first (its defaults filled in), as the PC's agent does; a model
+// that writes null for "not given" is forgiven once.
+const stripNulls = (v) => (Array.isArray(v) ? v.map(stripNulls) : v && typeof v === 'object'
+  ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== null).map(([k, x]) => [k, stripNulls(x)])) : v);
+export function parseArgs(tool, args) {
+  if (!tool.parameters?.parse) return args;
+  try { return tool.parameters.parse(args); } catch (first) {
+    try { return tool.parameters.parse(stripNulls(args)); } catch { throw new Error(`Those arguments don't fit ${tool.name}: ${String(first?.message ?? first).slice(0, 400)}`); }
+  }
+}
+
 /** A tool's result as the server takes it: text, or text and pictures. */
 export function toServer(result) {
   if (typeof result === 'string') return result;
+  if (typeof result?.content === 'string') return result.content;
   const parts = Array.isArray(result?.content) ? result.content : null;
   if (!parts) return JSON.stringify(result ?? '');
   return parts.map((p) => (p?.type === 'image'
@@ -93,7 +105,7 @@ export async function* serverEvents({ message, images = [], chat, tools, call, s
     let content, isError = false;
     if (!tool) { content = `This PC has no tool called ${name}.`; isError = true; }
     else {
-      try { content = toServer(await tool.execute(input ?? {}, { signal, toolCallId })); }
+      try { content = toServer(await tool.execute(parseArgs(tool, input ?? {}), { signal, toolCallId })); }
       catch (e) { content = String(e?.message ?? e).slice(0, 2000); isError = true; }
     }
     yield { type: 'tool_call_end', toolCallId, isError, result: typeof content === 'string' ? content : '(text and a picture)', durationMs: Date.now() - started };
