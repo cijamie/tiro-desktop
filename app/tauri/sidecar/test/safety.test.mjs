@@ -417,3 +417,20 @@ console.log('safety loophole tests: passed');
   assert.equal(looked, false, 'a blocked URL is refused before any lookup');
   console.log('checkFetch tests: passed');
 }
+
+// A link clicked on a Tiro notification in the dashboard: a Tiro path (on Tiro's own site) or Gmail, nothing else.
+{
+  const { checkNoticeLink } = await import('../safety.mjs');
+  const base = 'https://tiro.jamies.dev';
+  assert.equal(checkNoticeLink('/?tab=today&deck=1', base).level, SAFE);
+  assert.equal(checkNoticeLink('/?tab=today&deck=1', base).url, 'https://tiro.jamies.dev/?tab=today&deck=1');
+  assert.equal(checkNoticeLink('/chats/abc', `${base}/`).url, 'https://tiro.jamies.dev/chats/abc');
+  assert.equal(checkNoticeLink('https://mail.google.com/mail/u/0/#inbox/18c', base).level, SAFE);
+  for (const bad of ['//evil.example/x', '/\\evil.example', 'https://evil.example/', 'http://mail.google.com/', 'https://mail.google.com.evil.example/',
+    'https://user:pw@mail.google.com/', 'https://mail.google.com:8443/', 'file:///C:/Windows/System32/calc.exe', 'javascript:alert(1)', 'ms-settings:privacy',
+    'tiro.jamies.dev/x', '', null]) {
+    assert.equal(checkNoticeLink(bad, base).level, BLOCK, `blocked: ${bad}`);
+    assert.equal(checkNoticeLink(bad, base).url, undefined, `no url for ${bad}`);
+  }
+  console.log('checkNoticeLink tests: passed');
+}

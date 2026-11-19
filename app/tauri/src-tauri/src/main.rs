@@ -31,6 +31,8 @@ static SIDEKICK_OVERLAY: Mutex<Option<String>> = Mutex::new(None);
 static ONBOARDING: AtomicBool = AtomicBool::new(false);
 const ONBOARDING_LABEL: &str = "onboarding";
 const PANEL_LABEL: &str = "panel";
+/// The dashboard: a real window (title bar, taskbar button), opened from the tray menu.
+const DASHBOARD_LABEL: &str = "dashboard";
 /// When the panel last hid because it lost focus: a click on the icon that caused it mustn't reopen it.
 static PANEL_BLURRED: Mutex<Option<Instant>> = Mutex::new(None);
 /// Counts opens, so a close that's still playing its animation can tell it was opened again and stay up.
@@ -109,6 +111,44 @@ fn to_overlays(app: &AppHandle, msg: &Value) {
 fn to_panel(app: &AppHandle, msg: &Value) {
     if let Some(w) = app.get_webview_window(PANEL_LABEL) {
         let _ = w.eval(format!("window.__panel&&__panel({msg})"));
+    }
+}
+
+fn to_dashboard(app: &AppHandle, msg: &Value) {
+    if let Some(w) = app.get_webview_window(DASHBOARD_LABEL) {
+        let _ = w.eval(format!("window.__dash&&__dash({msg})"));
+    }
+}
+
+/// Opens the dashboard, or brings it to the front. It tells the sidecar when it closes, so the sidecar stops
+/// asking the server for its numbers and closes the live stream.
+fn show_dashboard(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window(DASHBOARD_LABEL) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        activate_window(app, DASHBOARD_LABEL);
+        return;
+    }
+    let b = WebviewWindowBuilder::new(app, DASHBOARD_LABEL, WebviewUrl::App("dashboard/index.html".into()))
+        .title("Tiro")
+        .inner_size(1180.0, 760.0)
+        .min_inner_size(760.0, 520.0)
+        .center()
+        .focused(true)
+        // theme/tokens.css --bg, so there's no white flash before the page paints.
+        .background_color(tauri::window::Color(11, 15, 25, 255));
+    match b.build() {
+        Ok(w) => {
+            let app2 = app.clone();
+            w.on_window_event(move |e| {
+                if let tauri::WindowEvent::Destroyed = e {
+                    to_sidecar(&app2, &json!({ "type": "dash_closed" }));
+                }
+            });
+            activate_app(app);
+        }
+        Err(e) => eprintln!("dashboard failed to open: {e}"),
     }
 }
 
@@ -643,7 +683,7 @@ fn open_onboarding(app: &AppHandle, mode: Option<&str>) {
         // macOS: the first click acts even while another app is active, instead of only activating Tiro.
         .accept_first_mouse(true)
         .focused(true)
-        .background_color(tauri::window::Color(5, 16, 18, 255));
+        .background_color(tauri::window::Color(11, 15, 25, 255));
     match b.build() {
         Ok(w) => {
             ONBOARDING.store(true, Ordering::Relaxed);
@@ -1176,6 +1216,12 @@ fn handle_sidecar(app: &AppHandle, msg: Value) {
             }
         }
         Some("panel_show") => show_panel(app, None, false),
+        Some("dash") => {
+            if let Some(m) = msg.get("msg") {
+                to_dashboard(app, m);
+            }
+        }
+        Some("dashboard_show") => show_dashboard(app),
         Some("diagnostics") => {
             let app = app.clone();
             thread::spawn(move || to_sidecar(&app, &diagnostics(&app)));

@@ -46,6 +46,7 @@ import { GEMINI_CHOICES, GEMINI_DEFAULT_VOICE, GEMINI_LOOK_VOICES, GEMINI_MODEL,
 import { createSecrets, retryLoad, runInput } from './secrets.mjs';
 import { showTrayIcon } from './wintray.mjs';
 import { createActivity } from './activity.mjs';
+import { createDashboard } from './dashboard.mjs';
 import { canCircle, canSnap, cleanMics, talkChords, hasHands, hasHotkeys, hasVoice, micTrouble, needsVoiceModel, platformLine, samePair, seesPointer, writeChord, writeChords } from './platform.mjs';
 import { accountKeys, keyCards, keyKinds, seesImages, signInCards } from './providers.mjs';
 import { OLLAMA, connectLocal, contextNote, downNote, forgetLocal, isSmallModel, newServer, noModelsNote, serverFor, serverList, syncLocal as syncServers, withWindow } from './local.mjs';
@@ -692,6 +693,8 @@ function commitmentsText() {
 // whenever settings change, so switching model or toggling a setting never loses the conversation.
 let agent = null, controller = null, busy = false, quiet = false, running = Promise.resolve();
 const activity = createActivity();
+// The dashboard window (dashboard.mjs): the KPI strip, the activity log, the Approval Deck, while it's open.
+const dash = createDashboard({ call: tiroCall, send, open: (url) => openUrl(url), log: (o) => logLine('dash', o) });
 // Rebuild the agent (same conversation) before the next message. Rarely needed now: memory and settings
 // reach the model through the live section, which is refreshed before every call.
 let agentStale = false;
@@ -1763,6 +1766,7 @@ function menu() {
   const items = [
     { id: 'status', label: status, enabled: false },
     { sep: true },
+    { id: 'dashboard', label: 'Open Dashboard…' },
     { id: 'panel', label: 'Open Panel…' },
     { id: 'show', label: `Show ${lookName()}`, ...(HOTKEYS_OK ? { accel: keys().summon } : {}) },
     { id: 'ask', label: `Ask ${lookName()}…`, enabled: !busy },
@@ -1782,6 +1786,7 @@ function menu() {
 // state when it opens and gets it again after each change, at most once per tick, only while it's open.
 let panelOpen = false, panelQueued = false, panelAt = 0;
 function panel() {
+  if (dash.open) dash.pc(activity.recent);
   if (!panelOpen || panelQueued) return;
   panelQueued = true;
   setImmediate(() => { panelQueued = false; if (panelOpen) { send({ type: 'panel', msg: { kind: 'state', state: { ...panelState(), tab: panelTab } } }); panelTab = null; } });
@@ -2001,6 +2006,7 @@ async function onMenu(id, via) {
     say('Fresh start. What are we doing?', 'happy');
   } else if (id.startsWith('forget:')) { await forgetFact(id.slice(7)); menu(); }
   else if (id === 'panel') send({ type: 'panel_show' });
+  else if (id === 'dashboard') send({ type: 'dashboard_show' });
   else if (id === 'quit') send({ type: 'quit' });
   // The panel asks first in its own words, so this one doesn't ask again.
   else if (id === 'forgetall:yes') { const n = await clearFacts(); menu(); panelNote(`Forgot ${n} thing${n === 1 ? '' : 's'}.`); }
@@ -2325,6 +2331,7 @@ async function onGuide(m) {
 createInterface({ input: process.stdin }).on('line', (line) => {
   let m;
   try { m = JSON.parse(line); } catch { return; }
+  if (dash.handle(m)) return;
   if (m.type === 'menu') onMenu(m.id, m.via).catch((e) => console.error('menu', e));
   else if (m.type === 'panel_todo' && typeof m.text === 'string' && m.text.trim()) todayPage.addTodo(m.text).catch((e) => panelNote(`Couldn't add it: ${e.message}`, true));
   else if (m.type === 'panel_open') { panelOpen = true; panelAt = Date.now(); logLine('panel_open', {}); todayPage.refresh(); if (VOICE_OK) send({ type: 'voice_mics' }); Promise.all([refreshAuth(), signedIn.get('local') && syncLocal(), tts().local && speech.checkLocal()]).catch(() => {}).finally(() => { panel(); refreshCatalogs(); }); }

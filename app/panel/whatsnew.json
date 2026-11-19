@@ -4,6 +4,13 @@
       "version": null,
       "date": "2026-11-20",
       "items": [
+        { "kind": "new", "title": "Dashboard", "text": "Open Dashboard in the tray menu: server health, activity, approvals." }
+      ]
+    },
+    {
+      "version": "0.2.19",
+      "date": "2026-11-20",
+      "items": [
         { "kind": "improved", "title": "A new look", "text": "Tiro now looks like the Tiro web app: dark slate, one cyan accent, clean panels." },
         { "kind": "improved", "title": "Cleaner bubbles and cards", "text": "No more glow, glass or dither. Text is sharper and easier to read." },
         { "kind": "improved", "title": "Green mic waveform", "text": "While I listen, four green bars show your voice." }

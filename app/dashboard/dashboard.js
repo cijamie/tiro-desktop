@@ -1,0 +1,227 @@
+// The dashboard window. Everything it shows comes from the sidecar (dashboard.mjs) as window.__dash(msg); everything
+// it does is a dash_* message back. Server text is only ever set with textContent. In a plain browser (no Tauri)
+// it runs on sample data, for checking the layout.
+(() => {
+  const TAURI = window.__TAURI__?.core?.invoke;
+  const send = TAURI ? (msg) => TAURI('sidecar_send', { msg }).catch(() => {}) : (msg) => preview(msg);
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, props = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === 'class') n.className = v;
+      else if (k === 'text') n.textContent = v;
+      else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+      else if (v != null && v !== false) n.setAttribute(k, v === true ? '' : v);
+    }
+    for (const c of kids.flat()) if (c != null && c !== false) n.append(c);
+    return n;
+  };
+  // replaceChildren with the empty parts (null, false) left out.
+  const fill = (node, ...kids) => node.replaceChildren(...kids.flat().filter((k) => k != null && k !== false));
+  const hhmm = (t) => { const d = new Date(t); return Number.isNaN(+d) ? '' : d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); };
+  const money = (v) => `$${(Number(v) || 0).toFixed(2)}`;
+
+  const S = { kpi: null, deck: [], deckErr: '', lines: [], notes: { items: [], unread: 0 }, live: null, page: 'overview', filter: 'all', armed: null, busy: false };
+
+  // ---------------------------------------------------------------- rail
+  const PAGES = [
+    ['overview', 'Overview'], ['chat', 'Chat', 'soon'], ['approvals', 'Approvals'], ['server', 'Server'], ['hermes', 'Hermes'],
+    ['forge', 'Forge', 'soon'], ['logs', 'Logs'], ['settings', 'Settings'],
+  ];
+  const SOON = {
+    chat: ['Chat', 'Tiro Command (chat with the server, /hermes and handoffs) comes in the next update.'],
+    forge: ['Forge', 'Drop files here to convert them with Tiro Forge in a later update.'],
+  };
+  function rail() {
+    $('rail').replaceChildren(...PAGES.map(([id, name, soon]) => el('button', {
+      type: 'button', role: 'tab', 'aria-selected': String(S.page === id), id: `tab-${id}`, onclick: () => go(id),
+    }, name, id === 'approvals' && S.deck.length ? el('span', { class: 'n num', text: String(S.deck.length) }) : null, soon ? el('span', { class: 'soon', text: 'soon' }) : null)));
+  }
+  function go(id) {
+    S.page = id;
+    const page = SOON[id] ? 'soon' : id;
+    for (const s of document.querySelectorAll('.page')) s.hidden = s.id !== `page-${page}`;
+    if (SOON[id]) { $('soonName').textContent = SOON[id][0]; $('soonText').textContent = SOON[id][1]; }
+    if (id === 'notes') { send({ type: 'dash_seen' }); }
+    rail(); render();
+    $('main').scrollTop = 0;
+  }
+
+  // ---------------------------------------------------------------- KPI strip
+  function strip() {
+    const k = S.kpi, c = [];
+    const chip = (label, value, { cls = '', title = '', dot = '' } = {}) => el('span', { class: `chip ${cls}`, title }, dot ? el('span', { class: `sdot ${dot}` }) : null, el('span', { class: 'tlbl', text: label }), value != null ? el('b', { class: 'num', text: value }) : null);
+    if (!k) c.push(chip('TiroCloud', '…'));
+    else {
+      c.push(chip('TiroCloud', k.cloud.ok ? (k.cloud.ms != null ? `${k.cloud.ms} ms` : 'up') : 'offline', { dot: k.cloud.ok ? 'ok' : 'bad', cls: k.cloud.ok ? '' : 'bad', title: k.cloud.error || 'TiroCloud health and how long it took to answer' }));
+      if (k.cpu != null) c.push(chip('CPU', `${k.cpu}%${k.temp != null ? ` · ${k.temp}°` : ''}`, { cls: k.temp >= 85 ? 'bad' : k.temp >= 75 ? 'warn' : '' }));
+      if (k.ram) c.push(chip('RAM', `${k.ram.used}/${k.ram.total} G`, { cls: k.ram.pct >= 90 ? 'warn' : '' }));
+      if (k.model) c.push(chip('Model', k.model.mode, { title: k.model.name }));
+      if (k.spend) c.push(chip('AI', `${money(k.spend.month)} / $${Math.round(k.spend.limit)}`, { title: 'Claude spend this month', cls: k.spend.limit && k.spend.month >= k.spend.limit ? 'bad' : '' }));
+      if (k.hermes) c.push(chip('Hermes', `${k.hermes.state} · ${money(k.hermes.today)}`, { dot: k.hermes.state === 'running' ? 'ok' : k.hermes.state === 'paused' ? 'warn' : '', title: `Today ${money(k.hermes.today)} of ${money(k.hermes.cap)} · month ${money(k.hermes.month)}` }));
+      if (k.stale) c.push(chip('Stats', 'stale', { cls: 'warn', title: 'The server stats are over a minute old' }));
+    }
+    $('strip').replaceChildren(...c);
+    const n = S.notes.unread;
+    $('bellN').textContent = String(n);
+    $('bell').classList.toggle('hot', n > 0);
+    const w = k?.weather;
+    $('wx').textContent = w ? `${w.place || 'Weather'} ${w.temp ?? '?'}° ${w.sky || ''}${w.low != null ? ` · ${w.low}–${w.high}°` : ''}` : '';
+  }
+
+  // ---------------------------------------------------------------- activity log
+  const SRC = { all: 'All', server: 'Server', hermes: 'Hermes', pc: 'PC' };
+  function filters(id) {
+    $(id).replaceChildren(...Object.entries(SRC).map(([k, name]) => el('button', { type: 'button', 'aria-pressed': String(S.filter === k), onclick: () => { S.filter = k; render(); } }, name)));
+  }
+  function log(id, max) {
+    const lines = S.lines.filter((l) => S.filter === 'all' || l.src === S.filter).slice(0, max);
+    $(id).replaceChildren(...(lines.length ? lines.map((l) => el('li', {}, el('span', { class: 't', text: hhmm(l.t) }), el('span', { class: `s ${l.src}`, text: SRC[l.src] ?? l.src }), el('span', { class: 'x', text: l.text })))
+      : [el('li', { class: 'empty', text: S.filter === 'all' ? 'Nothing yet. Tiro\'s notifications, Hermes and what this PC does show up here.' : 'Nothing from here yet.' })]));
+  }
+
+  // ---------------------------------------------------------------- approval deck
+  function deck(box) {
+    const n = S.deck.length;
+    if (!n) {
+      fill(box, el('div', { class: 'lbl' }, '[ ', el('b', { text: 'Waiting for you' }), ' ]'), el('p', { class: 'note', text: S.deckNote || 'All clear. New cards show up here and on your phone.' }),
+        S.deckErr ? el('p', { class: 'err', text: S.deckErr }) : null);
+      return;
+    }
+    const p = S.deck[0], armed = S.armed === p.id;
+    const act = (ok, tapped = false) => {
+      if (S.busy) return;
+      if (ok && p.tap && !tapped) { S.armed = p.id; render(); box.querySelector('.dconfirm .btn')?.focus(); return; }
+      S.busy = true; S.deckErr = '';
+      box.querySelector('.dcard')?.classList.add(ok ? 'out-r' : 'out-l');
+      send({ type: 'dash_act', id: p.id, card: p.type, ok, tapped });
+    };
+    const card = el('div', { class: 'dcard', tabindex: '0', 'aria-label': `${p.label}: ${p.title}`,
+      onkeydown: (e) => { if (e.key === 'ArrowRight') act(true); else if (e.key === 'ArrowLeft') act(false); } },
+    el('span', { class: 'dtag k', text: p.label }), p.from ? el('span', { class: 'dtag', text: `from ${p.from}` }) : null,
+    el('span', { class: 'dtitle', text: p.title }), el('span', { class: 'dsub', text: [p.when, p.location].filter(Boolean).join(' · ') }),
+    p.preview ? el('pre', { class: 'dprev', text: p.preview }) : null,
+    armed ? el('div', { class: 'dconfirm' }, el('button', { class: 'btn', type: 'button', onclick: () => act(true, true) }, `Tap to ${p.ok.toLowerCase()}`),
+      el('button', { class: 'link', type: 'button', onclick: () => { S.armed = null; render(); } }, 'Not yet')) : null);
+    fill(box, 
+      el('div', { class: 'lbl' }, '[ ', el('b', { text: 'Waiting for you' }), ' ]', el('span', { class: 'r num', text: `${n} left` })),
+      el('div', { class: 'stackd' }, n > 2 ? el('div', { class: 'dshadow two' }) : null, n > 1 ? el('div', { class: 'dshadow' }) : null, card),
+      el('div', { class: 'dbtns' }, el('button', { class: 'btn ghost', type: 'button', disabled: S.busy, onclick: () => act(false) }, 'Dismiss'),
+        el('button', { class: 'btn', type: 'button', disabled: S.busy || armed, onclick: () => act(true) }, p.ok)),
+      el('p', { class: 'dhint', text: `→ ${p.ok} · ← Dismiss${p.tap ? ' · needs a tap' : ''}` }),
+      S.deckErr ? el('p', { class: 'err', text: S.deckErr }) : null,
+    );
+  }
+
+  // ---------------------------------------------------------------- notifications
+  function notes(id, max) {
+    const items = S.notes.items.slice(0, max);
+    $(id).replaceChildren(...(items.length ? items.map((n) => el('li', {}, el('span', { class: `t ${n.new ? '' : 'old'}`, text: hhmm(n.t) }),
+      el('span', { class: 'x' }, n.title, n.body ? el('span', { text: n.body }) : null),
+      n.url ? el('button', { class: 'link go', type: 'button', onclick: () => send({ type: 'dash_link', url: n.url }) }, 'open') : null))
+      : [el('li', {}, el('span', { class: 'x note', text: 'No notifications yet.' }))]));
+  }
+
+  // ---------------------------------------------------------------- server / hermes
+  function kv(id, rows) {
+    $(id).replaceChildren(...rows.filter(Boolean).flatMap(([k, v, cls]) => [el('dt', { text: k }), el('dd', { class: cls || '', text: v ?? '—' })]));
+  }
+  function server() {
+    const k = S.kpi;
+    if (!k) return;
+    kv('sys', [
+      ['Health', k.cloud.ok ? `up · ${k.cloud.ms ?? '?'} ms` : `offline${k.cloud.error ? ` · ${k.cloud.error}` : ''}`, k.cloud.ok ? 'ok' : 'bad'],
+      ['CPU', k.cpu != null ? `${k.cpu}%` : null], ['Temp', k.temp != null ? `${k.temp}°C` : null, k.temp >= 85 ? 'bad' : k.temp >= 75 ? 'warn' : ''],
+      ['RAM', k.ram ? `${k.ram.used} of ${k.ram.total} GiB (${k.ram.pct}%)` : null],
+      ['Model', k.model ? `${k.model.mode} · ${k.model.name}${k.model.local ? '' : ' · local model down'}` : null],
+      ['Deploy', k.deploy ? `${k.deploy.result} · ${k.deploy.commit} · ${k.deploy.at}` : null, k.deploy && k.deploy.result !== 'ok' ? 'bad' : ''],
+    ]);
+    $('sysAge').textContent = k.stale ? 'stale' : '';
+    const rows = k.containers.map((c) => el('tr', {}, el('td', { text: c.name }), el('td', { class: c.state === 'running' ? 'ok' : 'bad', text: c.state }), el('td', { text: c.cpu }), el('td', { text: c.mem })));
+    $('ctr').replaceChildren(el('tr', {}, ...['Service', 'State', 'CPU', 'Memory'].map((h) => el('th', { text: h }))), ...rows);
+  }
+  function hermes() {
+    const h = S.kpi?.hermes;
+    kv('herm', h ? [['State', h.state, h.state === 'running' ? 'ok' : h.state === 'paused' ? 'warn' : ''], ['Today', `${money(h.today)} of ${money(h.cap)}`, h.cap && h.today >= h.cap ? 'bad' : ''], ['This month', money(h.month)]]
+      : [['State', S.kpi ? 'unknown (owner only, or the server is offline)' : '…']]);
+  }
+
+  // ---------------------------------------------------------------- render
+  function render() {
+    strip(); rail();
+    if (S.page === 'overview') { filters('filters-o'); log('log-o', 80); deck($('deck-o')); notes('notes-o', 6); }
+    else if (S.page === 'approvals') deck($('deck-a'));
+    else if (S.page === 'logs') { filters('filters-l'); log('log-l', 300); $('logCount').textContent = `${S.lines.length} lines`; }
+    else if (S.page === 'notes') { notes('notes-n', 100); $('noteCount').textContent = `${S.notes.items.length}`; }
+    else if (S.page === 'server') server();
+    else if (S.page === 'hermes') hermes();
+    $('live').textContent = S.live == null ? '…' : S.live ? 'live' : 'reconnecting…';
+  }
+  function toast(n) {
+    const t = el('div', { class: 'toast', role: 'status' }, el('span', { class: 'tlbl lbl', text: n.kind || 'Tiro' }), el('b', { text: n.title || 'Tiro' }), n.body ? el('p', { text: n.body }) : null);
+    if (n.url) { t.style.cursor = 'pointer'; t.addEventListener('click', () => send({ type: 'dash_link', url: n.url })); }
+    $('toasts').prepend(t);
+    while ($('toasts').children.length > 4) $('toasts').lastChild.remove();
+    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 220); }, 6000);
+  }
+  function snack(text, bad) {
+    const s = $('snack');
+    s.textContent = text; s.classList.toggle('bad', !!bad); s.hidden = false;
+    clearTimeout(snack.t); snack.t = setTimeout(() => { s.hidden = true; }, 4000);
+  }
+
+  window.__dash = (m) => {
+    if (!m || typeof m !== 'object') return;
+    if (m.kind === 'kpi') S.kpi = m.kpi;
+    else if (m.kind === 'deck') { S.deck = m.items ?? []; S.deckErr = m.error ?? ''; S.busy = false; if (!S.deck.some((c) => c.id === S.armed)) S.armed = null; if (S.deck.length) S.deckNote = ''; }
+    else if (m.kind === 'acted') { S.deckNote = `${m.done} · all clear`; S.armed = null; }
+    else if (m.kind === 'log') S.lines = m.lines ?? [];
+    else if (m.kind === 'notes') S.notes = { items: m.items ?? [], unread: m.unread ?? 0 };
+    else if (m.kind === 'conn') S.live = !!m.live;
+    else if (m.kind === 'toast') toast(m.notice ?? {});
+    else if (m.kind === 'note') snack(m.text, m.bad);
+    render();
+  };
+
+  $('bell').addEventListener('click', () => go('notes'));
+  $('seeAll').addEventListener('click', () => go('notes'));
+  $('openPanel').addEventListener('click', () => send({ type: 'dash_panel' }));
+  $('openWeb').addEventListener('click', () => send({ type: 'dash_link', url: '/' }));
+  addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r') { e.preventDefault(); send({ type: 'dash_refresh' }); } });
+  go('overview');
+  send({ type: 'dash_open' });
+
+  // ---------------------------------------------------------------- browser preview (sample data)
+  function preview(msg) {
+    if (msg.type !== 'dash_open' && msg.type !== 'dash_act') return;
+    const now = Date.now(), at = (m) => now - m * 60_000;
+    if (msg.type === 'dash_act') {
+      const i = preview.deck.findIndex((c) => c.id === msg.id);
+      setTimeout(() => { if (i >= 0) preview.deck.splice(i, 1); window.__dash({ kind: 'acted', id: msg.id, ok: msg.ok, done: msg.ok ? 'Done' : 'Dismissed' }); window.__dash({ kind: 'deck', items: preview.deck }); }, 250);
+      return;
+    }
+    document.title = 'Tiro dashboard (preview with sample data)';
+    preview.deck = [
+      { type: 'proposal', id: 'p1', kind: 'mail_send', label: 'Email', title: 'Reply to Dana: Thursday works', when: 'Sends now', preview: 'Hi Dana,\n\nThursday at 3 works for me. See you then.\n\nJamie', ok: 'Send', done: 'Sent', from: 'Hermes', tap: true },
+      { type: 'proposal', id: 'p2', kind: 'event', label: 'Calendar', title: 'Dentist', when: 'Fri 21 Nov, 15:00–16:00', location: 'Gangnam', ok: 'Add', done: 'Added', from: 'Chat', tap: false },
+      { type: 'memory', id: 'm1', kind: 'memory', label: 'Memory', title: 'Prefers morning meetings', when: 'Remember this?', ok: 'Remember', done: 'Remembered', from: 'Chat', tap: false },
+    ];
+    setTimeout(() => {
+      window.__dash({ kind: 'kpi', kpi: { cloud: { ok: true, ms: 38, error: '' }, cpu: 7, temp: 41, ram: { used: 5.8, total: 11.9, pct: 49 }, stale: false,
+        deploy: { result: 'ok', commit: '0971252', at: '2026-11-20 00:08:26' }, containers: [{ name: 'brain', state: 'running', cpu: '0.31%', mem: '102.7MB / 768MB' }, { name: 'caddy', state: 'running', cpu: '0.02%', mem: '21MB / 128MB' }, { name: 'ollama', state: 'running', cpu: '0.00%', mem: '1.2GB / 6GB' }],
+        model: { mode: 'Local first', name: 'claude-sonnet-5-5', local: true }, spend: { month: 3.21, limit: 20, today: 0.12 },
+        hermes: { state: 'running', today: 0.04, month: 1.18, cap: 0.3 }, weather: { place: 'Seoul', temp: 4, sky: 'Clear', low: -1, high: 7 } } });
+      window.__dash({ kind: 'deck', items: preview.deck });
+      window.__dash({ kind: 'conn', live: true });
+      window.__dash({ kind: 'notes', unread: 2, items: [
+        { t: at(3), title: 'Handoff done', body: 'Summary of the lab report saved to chats', url: '/?chat=1', new: true },
+        { t: at(25), title: 'Converted clip.mp4', body: 'In Files → Tiro Forge', url: '/?tab=files', new: true },
+        { t: at(90), title: 'New mail from Canvas', body: 'Assignment 4 graded', url: 'https://mail.google.com/mail/u/0/#inbox/1', new: false }] });
+      window.__dash({ kind: 'log', lines: [
+        { t: at(1), src: 'pc', text: 'Looked at your screen' }, { t: at(3), src: 'hermes', text: 'Handoff done: Summary of the lab report saved to chats' },
+        { t: at(12), src: 'pc', text: 'Read notes.md' }, { t: at(25), src: 'server', text: 'Converted clip.mp4: In Files → Tiro Forge' },
+        { t: at(40), src: 'server', text: 'Server OK: all 9 services running' }, { t: at(90), src: 'server', text: 'New mail from Canvas: Assignment 4 graded' }] });
+      if (new URLSearchParams(location.search).has('toast')) window.__dash({ kind: 'toast', notice: { kind: 'hermes', title: 'Handoff done', body: 'Summary of the lab report saved to chats', url: '/?chat=1' } });
+    }, 0);
+  }
+})();
