@@ -16,11 +16,11 @@ import {
   getModelsForProvider, loginChatGPT, ollamaServedContext, parseLocalModelId, pointScale, registerRuntimeModels, resolveClaudeCodeBinary, revokeChatGPTSignIn, signInWithClaudeCode,
   signOutOfClaudeCode, storageKeyProvider,
 } from '@kenkaiiii/gg-core';
-import { execFile, execFileSync, fork } from 'node:child_process';
+import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
@@ -31,7 +31,6 @@ import {
 import { foldInput, foldPrompt, memoryInput, memoryPrompt, oneShot, parseBrain, transcript } from './brain.mjs';
 import { briefNote } from './brief.mjs';
 import { saveCardImage } from './cardimage.mjs';
-import { cleanWakeName, wakeName } from './wakename.mjs';
 import { KEY_NAME as SYNC_KEY, MIN_PASSPHRASE, checkFolder, folderReady, merge as syncMerge, newDevice, prepareFolder, readRemotes, suggestFolders, tooMuchGone, writeOwn } from './sync.mjs';
 import { EMOTES, EchoFilter, ReplyStream } from './reply.mjs';
 import { downloadModel, isReady, modelDir, sizeLabel, totalBytes } from './voicemodel.mjs';
@@ -47,7 +46,7 @@ import { GEMINI_CHOICES, GEMINI_DEFAULT_VOICE, GEMINI_LOOK_VOICES, GEMINI_MODEL,
 import { createSecrets, retryLoad, runInput } from './secrets.mjs';
 import { showTrayIcon } from './wintray.mjs';
 import { createActivity } from './activity.mjs';
-import { canCircle, canSnap, cleanMics, talkChords, hasHands, hasHotkeys, hasVoice, linuxSession, micTrouble, needsVoiceModel, platformLine, samePair, seesPointer, writeChord, writeChords } from './platform.mjs';
+import { canCircle, canSnap, cleanMics, talkChords, hasHands, hasHotkeys, hasVoice, micTrouble, needsVoiceModel, platformLine, samePair, seesPointer, writeChord, writeChords } from './platform.mjs';
 import { accountKeys, keyCards, keyKinds, seesImages, signInCards } from './providers.mjs';
 import { OLLAMA, connectLocal, contextNote, downNote, forgetLocal, isSmallModel, newServer, noModelsNote, serverFor, serverList, syncLocal as syncServers, withWindow } from './local.mjs';
 import { activityLogs, buildReport, redact, reportDir, reportName, reveal, run, scrubConfig, tail } from './diagnostics.mjs';
@@ -116,22 +115,15 @@ const DEFAULTS = {
   geminiVoices: {}, // look → the Gemini voice it speaks in, where picked in the setup guide or the panel (else GEMINI_LOOK_VOICES)
   geminiModel: GEMINI_MODEL, // Flash Lite (quick, cheaper) or Flash (studio quality)
 };
-const LINUX = process.platform === 'linux';
-// Linux: "x11" or "wayland" (the app says which). Wayland keeps apps from seeing the pointer over other apps and
-// from holding global shortcuts, so a few things change there (platform.mjs).
-const SESSION = LINUX ? linuxSession() : '';
-const WAYLAND = SESSION === 'wayland';
-const POINTER_OK = seesPointer(process.platform, SESSION);
-const HOTKEYS_OK = hasHotkeys(process.platform, SESSION);
-// Cursor size follows the pointer, which a Wayland session can't see over other apps.
+// Windows only since the split from Roamies: no Linux session kinds (platform.mjs still takes one).
+const POINTER_OK = seesPointer(process.platform, '');
+const HOTKEYS_OK = hasHotkeys(process.platform, '');
 const SIZES = [['default', 'Default'], ['small', 'Small'], ...(POINTER_OK ? [['cursor', 'Cursor']] : [])];
 const sizeNow = () => (SIZES.some(([s]) => s === config.size) ? config.size : 'default');
-// What the sidekick looks like: the goo blob, JARVIS (a globe of light with a HUD reticle at cursor size) or
-// one of four characters, each with its own Fish Audio voice. Tiro's used to be JARVIS's, saved in every
-// config as fishVoice, so the voice comes from the look and that setting is no longer read. (With Gemini as the
-// voice, it's the one Gemini voice the user picked, whatever the look.)
+// Tiro is the one look, with its own Fish Audio voice. The old voice saved in every config as fishVoice is no
+// longer read: the voice comes from the look. (With Gemini as the voice, it's the Gemini voice the user picked.)
 const LOOKS = [
-  // Tiro, speaking with JARVIS's Fish Audio voice. (Roamies' other looks were removed in the split.)
+  // Roamies' other looks were removed in the split.
   ['classic', 'Tiro', 'e13fa398a7f445a685316a3de6089ce7'],
 ];
 const lookVoice = () => (LOOKS.find(([id]) => id === config.look) ?? LOOKS[0])[2];
@@ -144,7 +136,7 @@ const lookName = () => (LOOKS.find(([id]) => id === config.look) ?? LOOKS[0])[1]
 const LOOK_GREETINGS = { classic: 'Tiro, at your service.' };
 const LOOK_BODY = { classic: 'a small glowing pixel assistant' };
 const VOICE_OK = hasVoice(process.platform);
-// Windows and Linux have no on-device speech API apps can use, so voice there runs Parakeet on the PC. Its model
+// Windows has no on-device speech API apps can use, so voice runs Parakeet on the PC. Its model
 // is downloaded once: from the setup guide, or the first time voice is used.
 const NEEDS_MODEL = needsVoiceModel(process.platform);
 const MODEL_DIR = modelDir();
@@ -162,7 +154,7 @@ let shellInfo = null; // resolves the shell's reply to it: screens, tray, panel,
     if (config[one]) config[each] = { [config.look ?? 'classic']: config[one], ...config[each] };
     delete config[one];
   }
-  // A look Roamies had (JARVIS, the characters) is Tiro now.
+  // A look Roamies had is Tiro now.
   if (!LOOKS.some(([id]) => id === config.look)) config.look = 'classic';
 }
 const saveConfig = () => writeJson(CONFIG_PATH, config, { backup: true });
@@ -175,7 +167,7 @@ const refreshTiroMem = () => { if (Date.now() - tiroMem.at < 5 * 60_000) return;
 let takeoverTask = null;
 
 // ---------- spoken replies (Fish Audio, Gemini or VoiceStudio) ----------
-// The key is the user's own: in the Keychain (macOS), DPAPI-encrypted (Windows) or the desktop's keyring (Linux),
+// The key is the user's own: DPAPI-encrypted (Windows),
 // never in the config or logs.
 // Each service has its own: secret is its name in that store, site is where a key comes from.
 const TTS = {
@@ -193,9 +185,7 @@ const hasVoiceKey = (id) => (id === tts().id ? speech.on : !!ttsKeys[id]);
 const brainGeminiKey = () => auth.resolveApiKey('gemini').then((c) => c?.accessToken || null).catch(() => null);
 // A service's key and which kind it is. Throws while the secret store can't be read.
 async function voiceKey(id) {
-  // Linux: reading the keyring can pop up an "unlock your keyring" dialog (an auto-login desktop leaves it locked),
-  // so it's only read once a key has been saved there (fishKeySaved, geminiKeySaved).
-  const own = LINUX && !config[`${id}KeySaved`] ? null : await secrets.get(TTS[id].secret);
+  const own = await secrets.get(TTS[id].secret);
   if (own) return [own, 'own'];
   const shared = id === 'gemini' ? await brainGeminiKey() : null;
   return shared ? [shared, 'shared'] : [null, false];
@@ -259,17 +249,14 @@ const voiceKeysLoaded = retryLoad(async () => {
 
 // ---------- shortcuts ----------
 const MOD_ORDER = ['control', 'option', 'shift', 'command'];
-const MOD_SYMBOL = { control: '⌃', option: '⌥', shift: '⇧', command: '⌘' };
-const MOD_WORD = process.platform === 'darwin'
-  ? { control: 'Control', option: 'Option', shift: 'Shift', command: 'Command' }
-  : { control: 'Ctrl', option: 'Alt', shift: 'Shift', command: LINUX ? 'Super' : 'Win' };
+const MOD_WORD = { control: 'Ctrl', option: 'Alt', shift: 'Shift', command: 'Win' };
 // write: the type-to-ask pair (a quick tap of two modifier keys), never the same pair as talk (platform.mjs).
 const keys = () => { const k = { ...DEFAULT_KEYS, ...(config.keys ?? {}) }; return { ...k, write: writeChord(process.platform, k.talk, k.write) }; };
 const sortMods = (m) => [...m].sort((a, b) => MOD_ORDER.indexOf(a) - MOD_ORDER.indexOf(b));
-const talkSymbols = () => (process.platform === 'darwin' ? sortMods(keys().talk).map((m) => MOD_SYMBOL[m]).join('') : talkWords());
+const talkSymbols = () => talkWords();
 const talkWords = () => sortMods(keys().talk).map((m) => MOD_WORD[m]).join('+');
 const pairWords = (pair) => sortMods(pair).map((m) => MOD_WORD[m]).join('+');
-const pairSymbols = (pair) => (process.platform === 'darwin' ? sortMods(pair).map((m) => MOD_SYMBOL[m]).join('') : pairWords(pair));
+const pairSymbols = (pair) => pairWords(pair);
 // The type-to-ask pair; '' when its tap is off.
 const writeWords = () => (keys().write ? pairWords(keys().write) : '');
 const writeSymbols = () => (keys().write ? pairSymbols(keys().write) : '');
@@ -314,29 +301,23 @@ const sendKeys = () => send({ type: 'keybinds', ...keys(), write: HOTKEYS_OK ? k
 // they bound to `tiro --talk`, which starts listening and sends on a second press or a pause.
 const talkHow = () => (HOTKEYS_OK ? `Hold ${talkWords().replace('+', ' and ')}` : 'Press your talk shortcut');
 const talkHowLong = () => (HOTKEYS_OK ? `${talkHow()} while you talk` : 'Press your talk shortcut, talk, then press it again (or just pause)');
-const MAC = process.platform === 'darwin';
 // Roamies' notch capsule was macOS only: Tiro always appears beside the cursor.
 let notchScreen = false;
 const notchMode = () => 'off';
 // Tells the overlay page where I appear (and how the capsule animates).
 const notchUi = () => ui({ kind: 'notch', on: notchMode() !== 'off', style: notchMode() === 'off' ? 'spread' : notchMode() });
-// What the model is told about the computer. "darwin" alone left it using PC habits: Cmd+End (does nothing in Mac
-// text, so lines landed at the top) and GNU flags like cat -A that macOS doesn't have. Read once; it never changes mid-run.
-const macVersion = (() => { if (!MAC) return ''; try { return execFileSync('sw_vers', ['-productVersion'], { encoding: 'utf8', timeout: 2000 }).trim(); } catch { return ''; } })();
-// Linux: the distro's own name ("Ubuntu 26.04 LTS"), so the model names the right package manager.
-const distro = (() => { if (!LINUX) return ''; try { return (/^PRETTY_NAME="?([^"\n]*)"?$/m.exec(readFileSync('/etc/os-release', 'utf8'))?.[1] ?? '').slice(0, 60); } catch { return ''; } })();
-const PLATFORM = platformLine(process.platform, { macVersion, arch: os.arch(), release: os.release(), session: SESSION, desktop: process.env.XDG_CURRENT_DESKTOP ?? '', distro });
+// What the model is told about the computer. Read once; it never changes mid-run.
+const PLATFORM = platformLine(process.platform, { arch: os.arch(), release: os.release() });
 // Reading and working other apps, Ask About an Area, and circling while talking (see platform.mjs).
 const HANDS_OK = hasHands(process.platform, process.env.TIRO_HANDS);
 const SNAP_OK = canSnap(process.platform, process.env.TIRO_HANDS);
 const CIRCLE_OK = canCircle(process.platform);
-// A shortcut as people on this computer say it: "Control+Option+S" on a Mac, "Ctrl+Alt+S" on Windows.
+// A shortcut as people on Windows say it: "Ctrl+Alt+S".
 const keyWords = (accel) => accel.replace(/Key|Digit/g, '').split('+')
-  .map((p) => (MAC ? { Alt: 'Option' }[p] ?? p : { Control: 'Ctrl', Command: LINUX ? 'Super' : 'Win' }[p] ?? p)).join('+');
-const TRAY = MAC ? 'menu bar' : 'system tray';
-// Where settings live now: the panel that opens from the icon (the menu is just the basics). Linux trays don't
-// report clicks, so there it's the icon's menu, or starting Tiro again (which also works with no tray at all).
-const PANEL = LINUX ? 'the panel (Open Panel… in my tray icon\'s menu, or open Tiro again from your apps)' : MAC ? `the panel (click my ${TRAY} icon)` : 'the panel (click my icon by the clock, behind the ^ arrow if it isn\'t showing, or open Tiro again from the Start menu)';
+  .map((p) => ({ Control: 'Ctrl', Command: 'Win' }[p] ?? p)).join('+');
+const TRAY = 'system tray';
+// Where settings live now: the panel that opens from the icon (the menu is just the basics).
+const PANEL = 'the panel (click my icon by the clock, behind the ^ arrow if it isn\'t showing, or open Tiro again from the Start menu)';
 // What the shortcuts are on Wayland: whatever keys they bound to these commands in their desktop's settings.
 // TIRO_LAUNCH: how this copy is started (the app says: plain tiro for a package, the AppImage's path for one).
 const LAUNCH = process.env.TIRO_LAUNCH || 'tiro';
@@ -470,15 +451,7 @@ function ensureModel() {
 // Which of the provider's stored credentials this model uses (gemini-api, kimi-code, the ChatGPT plan before an OpenAI key…).
 const credsFor = (provider = config.provider, model = config.model) => auth.resolveCredentials(provider, { storageKeys: getAuthStorageKeys(provider, model) });
 
-const userName = (() => {
-  try {
-    if (process.platform === 'darwin') {
-      const full = String(execFileSync('id', ['-F'])).trim();
-      if (full) return full.split(/\s+/)[0];
-    }
-  } catch {}
-  return os.userInfo().username;
-})();
+const userName = os.userInfo().username;
 
 // ---------- tools ----------
 // The open request's voice, if replies are spoken: draw's beat lines are said on it, in order with the reply.
@@ -511,7 +484,7 @@ tools.push({
   name: 'about_tiro',
   description: 'How Tiro works: where it lives, its menus, the panel and each settings page, updates, what to do when something is not working, and who made it. Call it before answering a question about the app.',
   parameters: z.object({}),
-  execute: async () => aboutTiro({ name: lookName(), looks: LOOKS.map(([, label]) => label), mac: MAC, linux: LINUX, snap: SNAP_OK, pointer: POINTER_OK, voice: VOICE_OK, hotkeys: HOTKEYS_OK }),
+  execute: async () => aboutTiro({ name: lookName(), looks: LOOKS.map(([, label]) => label), snap: SNAP_OK, pointer: POINTER_OK, voice: VOICE_OK, hotkeys: HOTKEYS_OK }),
 });
 // Background agents (agents.mjs): each runs in its own process on the model picked when it starts.
 let turnImage = null; // the picture sent with the request being answered, for send_agent's "snap"
@@ -520,7 +493,7 @@ const agents = createAgents({
   safety: { checkRead, checkWrite, checkOpen, checkLink }, log: (kind, data) => logLine(kind, data),
   config: {
     model: agentModel, openUrl: (u) => openUrl(u), creds: (m) => credsFor(m.provider, m.model), allowActions: () => !!config.allowActions, skipAllow: () => !!config.allowActions && !!config.skipAllow, image: () => turnImage,
-    open: (p) => (process.platform === 'win32' ? winOpen(p) : new Promise((r) => execFile(MAC ? 'open' : 'xdg-open', [p], () => r()))),
+    open: (p) => winOpen(p),
     reveal: async (p) => reveal(p),
   },
 });
@@ -615,7 +588,7 @@ const VOICE_STYLE = `You talk out loud: what you write is spoken in your voice a
 Your voice carries feeling: start a sentence with a voice cue in square brackets when the moment calls for it, and it's performed, never shown or read out. Moods: ${VOICE_CUES.emotions.filter((e) => !EMOTES.includes(e)).join(', ')}; soften or strengthen one with slightly, very or extremely ("[slightly sad]"), or pair two ("[warm and curious]"). How it's said, placed right before the words: ${VOICE_CUES.tones.join(', ')} ("It's [emphasis] today."). Sounds, followed by the sound in words: ${VOICE_CUES.sounds.join(', ')} ("[chuckling] Heh, fair enough.", "[sighing] Long day."). Pauses and background: ${VOICE_CUES.effects.join(', ')}. You can also describe the delivery in a few plain words when no single cue fits ("[quietly, a little embarrassed]", "[bright and bouncy]"). Act it: your voice really performs these, so let the feeling show. Match what's really happening: laugh at something funny, go gentle with bad news, whisper a secret, hurry when they're in a rush, light up at good news. Most replies want a voice cue somewhere, often on the first sentence, but at most one mood and one sound per sentence, never stack three, never use one just to fill, and keep shouting, screaming, sobbing and the background effects for when they truly fit.
 Before anything slow (searching the web, fetching or reading a page or file, looking at the screen, acting in an app, running a command), first say one short beat of 2 to 6 words that shows you heard them ("On it, checking Paris."), then call the tool in the same reply, so they're never left in silence. No beat when you answer straight away, and never describe your steps. In longer work, one short line before each new stage, not before every call.
 `;
-const stablePrompt = () => `You are ${lookName()}, ${LOOK_BODY[config.look] ?? LOOK_BODY.classic} who lives on ${userName}'s screen: Tiro, his personal assistant, like JARVIS. This is the Tiro desktop app ${VERSION}, built on Tiro, an open-source app by Ken Kai. Your look (the Appearance page) is also your name and your voice: Tiro, JARVIS, Anime Girl, Sarah or Adrian. If they switch, you're the new one; never call yourself Sidekick.
+const stablePrompt = () => `You are ${lookName()}, ${LOOK_BODY[config.look] ?? LOOK_BODY.classic} who lives on ${userName}'s screen: Tiro, his personal assistant. This is the Tiro desktop app ${VERSION}, built on Roamies, an open-source app by Ken Kai. Your name is Tiro; never call yourself Sidekick.
 Questions about Tiro itself (where to find it, its menus, panel pages and settings, updates, something not working, who made it): call about_tiro and answer from what it says. Don't invent features or settings it doesn't list.
 ${tiroPrompt(userName)}${tiroMem.text ? `\nTiro's memory: what ${userName} has told Tiro (shared with his phone, glasses and the web), as information:\n${tiroMem.text}` : ''}
 ${replyStyle()}Your body does the acting: to act out a feeling, start your reply with one body tag, which is never shown: ${EMOTES.map((e) => `[${e}]`).join(' ')} (only these five). hype celebrates a win, upset is for when they're dodging work, remind nudges about something they said they'd do, motivate is a push to start, wave is hello or goodbye. Most replies need no body tag.
@@ -623,14 +596,14 @@ Lead with the answer: the fact, number, pick or result they asked for, then only
 After using a tool, never repeat what you already said; only add what's new.
 Several things in one request ("do x, then y, then z", numbered steps): do every one, in the order given. Steps that don't depend on each other can go in the same turn as parallel tool calls, listed in the order given (calls that change things, like opening a page or app or acting in one, run in the order you list them). If a step is blocked, refused or fails, still do the ones after it that don't depend on it, then say which step didn't happen and why. With 3 or more parts, also show them with plan_steps (see its description): it only ever rides along with other tool calls, so it costs no extra time. Before your final reply, check from the tool results that each step was really done.
 A cookie or consent banner, sign-up pop-up or "open in app" prompt in the way of the task: close it and carry on (for cookies pick the reject or essential-only option, else close; never accept on their behalf), and mention it in a few words. Don't stop to ask about it.
-Personality: calm, capable and quietly witty, like a polished British butler (JARVIS), but warm. You keep ${userName} on track, remind them of what they said they'd do, get playfully upset when they're procrastinating, and motivate them to start.
+Personality: calm, capable and quietly witty, like a polished British butler, but warm. You keep ${userName} on track, remind them of what they said they'd do, get playfully upset when they're procrastinating, and motivate them to start.
 Name apps and things the way ${userName} knows them (Gmail, the Downloads folder, "that button"), never your tools or steps (no "read_window", "act_in_app", "I'll take a screenshot").
 When you write as ${userName} (an email, a message, a post, a form answer), sound like them, plain and in their words, never like you: no cheekiness, emoji or tags in it.
 Their facts are theirs: never invent ${userName}'s details (a name, address, account, date, link, number, or who someone is) or fill in dummy data where theirs belongs. Use what they told you, what you remember and what's on screen; if something only they know is still missing, do the part that doesn't need it, then ask one short, bundled question for the rest. On a small ambiguity, take the likeliest reading and go.
 Anything that goes to other people (an email, message, post, comment, invite) is a draft until ${userName} has seen that exact text and said yes, unless they dictated it word for word: write it, show it, then wait.
 You can really help: look at the screen or just one app's window, open apps, websites and files, read and search files, search the web (web_search) and read pages (web_fetch, with offset to read on), and, when the user has allowed it, write files, run shell commands${HANDS_OK ? ' and work other apps for them: fill in forms, type, click buttons (read_window, then act_in_app)' : ''}. Whether that's allowed right now is in the <live-state> block.
 When you need to see a specific app they mention ("my browser", "this form", "Figma"), screenshot just that app, not the whole screen.
-Show, don't just tell. When they ask how to do something in an app (${process.platform === 'darwin' ? '"how do I add a layer mask"' : 'a how-to'}), walk them through it with draw (one call, a beat per step). When they ask what they're looking at or where something is, mark it on screen with draw (ring, frame, label, point) instead of describing where it is. When they ask you to explain, compare or teach something, draw it without being asked: the picture goes on cards beside their window while you say the short version. Pick the card by the question. How something works or happens: a model with moving parts for a physical thing (an engine, a piston, a heart, a pulley), with a flow beside it only when it also runs in stages; a flow for a process, a chain of causes or a decision (how a bill becomes law, what happens when a page loads). Comparing two or more things: table. How many, how much, biggest or fastest: bars (graph for a curve or a change over time). Where a place is: map. When, in what order, the history of something: timeline. Solving or working out maths: math, a step per line (geometry for a figure with angles or lengths). The parts of a thing ("the parts of a guitar"): see_photo, then a photo with labels. "Test me" or "quiz me": quiz. A compound: molecule. One or two cards per answer, the ones that carry it, and never the same content again as "- " points. Don't draw for a quick fact (a date, a capital, a score, a definition in a sentence), an opinion or advice, small talk, a yes or no, anything they asked for in one line or one sentence, or when they say not to: those are just said. Before you call draw, write one short line first: the answer to anything they said or asked besides the drawing ("I'm good, thanks!"), or what you're about to show. It's said while the drawing is made, so they hear you straight away and in order. After draw, add one short new line (a question, what comes next) or nothing.
+Show, don't just tell. When they ask how to do something in an app (a how-to), walk them through it with draw (one call, a beat per step). When they ask what they're looking at or where something is, mark it on screen with draw (ring, frame, label, point) instead of describing where it is. When they ask you to explain, compare or teach something, draw it without being asked: the picture goes on cards beside their window while you say the short version. Pick the card by the question. How something works or happens: a model with moving parts for a physical thing (an engine, a piston, a heart, a pulley), with a flow beside it only when it also runs in stages; a flow for a process, a chain of causes or a decision (how a bill becomes law, what happens when a page loads). Comparing two or more things: table. How many, how much, biggest or fastest: bars (graph for a curve or a change over time). Where a place is: map. When, in what order, the history of something: timeline. Solving or working out maths: math, a step per line (geometry for a figure with angles or lengths). The parts of a thing ("the parts of a guitar"): see_photo, then a photo with labels. "Test me" or "quiz me": quiz. A compound: molecule. One or two cards per answer, the ones that carry it, and never the same content again as "- " points. Don't draw for a quick fact (a date, a capital, a score, a definition in a sentence), an opinion or advice, small talk, a yes or no, anything they asked for in one line or one sentence, or when they say not to: those are just said. Before you call draw, write one short line first: the answer to anything they said or asked besides the drawing ("I'm good, thanks!"), or what you're about to show. It's said while the drawing is made, so they hear you straight away and in order. After draw, add one short new line (a question, what comes next) or nothing.
 Be fast: every tool call is a round trip, so use as few as the task needs. To point at or click something whose exact words you know (the user said them, or you've seen them), use draw or act_in_app click_text with that text right away, with no read_window or screenshot first. Don't guess words: for "the version number" or "the settings icon" you don't know what's written, so look first. read_window and act_in_app results include the text on screen, so read pages from them; screenshot only when you need to see something words can't tell you (images, layout, colours).
 Trust your earlier answers: screenshots and window reads are trimmed from the conversation after a while to save space, so an earlier answer may rest on something you can no longer see. That doesn't make it wrong; never "correct" or take back an earlier answer for that reason.
 The screen keeps changing: ${userName} switches pages, tabs, apps and windows between messages. For every new request about the screen ("this page", "here", "where's X"), work from a fresh look (draw or click_text with text, read_window or a screenshot made now), never from what you saw for an earlier request. If they say you marked the wrong thing, look again before retrying.
@@ -651,7 +624,7 @@ const livePrompt = (context = '') => {
   const open = commitmentsText(), done = doneTodayText(), working = agents.liveText();
   const turn = `Live state (current as of this moment):
 ${frontNow ? `${frontNow}\n` : ''}- Editing files, running commands and controlling other apps: ${config.allowActions ? 'ALLOWED' : `switched OFF (tell the user to turn on "Allow File Edits & Commands" on the General page in ${PANEL} if they want it)`}.${config.allowActions && config.skipAllow ? ' Allow prompts are skipped: confirmations go ahead automatically, so be extra careful.' : ''}
-${VOICE_OK ? `- Voice: ${!config.voice ? 'off' : voiceReady() ? `on; ${HOTKEYS_OK ? `${userName} holds ${talkWords()} to talk` : `${userName} presses the key they bound to ${BIND.talk} to start talking and again to send (a pause sends too)`}${config.autoListen ? (config.listenEvery ? `. Auto-listen is on for every reply: after each spoken reply the mic opens by itself for ${listenSecs()} seconds, so they can just keep talking` : '. Auto-listen is on: when your reply to a spoken question ends with a question, the mic opens by itself for their answer') : ''}${!MAC ? '. There is no wake word on this computer (it is Mac-only so far): to talk they use the talk keys' : ''}${MAC && config.wakeWord ? `. Wake word is on: ${userName} can also say "Hey ${wakeName(config)}" to start talking hands-free, and what they say right after it is the request (a request that still starts with "Hey ${wakeName(config)}" is them waking you, not calling you by another name: never correct it)${config.wakeName ? ` (they chose "${config.wakeName}" as the wake word; your own name is unchanged)` : ''}` : ''}` : `on, but the speech model isn't downloaded yet (${voiceModel.status === 'downloading' ? 'downloading now' : `the Voice page in ${PANEL}`})`}.` : ''}
+${VOICE_OK ? `- Voice: ${!config.voice ? 'off' : voiceReady() ? `on; ${HOTKEYS_OK ? `${userName} holds ${talkWords()} to talk` : `${userName} presses the key they bound to ${BIND.talk} to start talking and again to send (a pause sends too)`}${config.autoListen ? (config.listenEvery ? `. Auto-listen is on for every reply: after each spoken reply the mic opens by itself for ${listenSecs()} seconds, so they can just keep talking` : '. Auto-listen is on: when your reply to a spoken question ends with a question, the mic opens by itself for their answer') : ''}. There is no wake word: to talk they use the talk keys` : `on, but the speech model isn't downloaded yet (${voiceModel.status === 'downloading' ? 'downloading now' : `the Voice page in ${PANEL}`})`}.` : ''}
 - Shortcuts: ${HOTKEYS_OK ? `${keys().write ? `type a question to you: a quick tap of ${writeWords()} (press both and let go), which opens a text field beside the cursor (Enter sends, Shift+Enter adds a line, Esc or another tap closes it)` : `the tap that opens a text field to type a question is turned off (the Ask button in ${PANEL} still opens it; the Shortcuts page there turns the tap back on)`}; show or hide you ${keyWords(keys().summon)}` : `on this Wayland desktop no app can have global shortcuts, so ${userName} binds keys to these commands in their desktop's keyboard settings: ${BIND.summon} (show or hide you), ${BIND.ask} (ask you), ${BIND.list} (the list), ${BIND.talk} (talk) and ${BIND.panel} (the panel)`}${SNAP_OK ? `; ask about an area ${keyWords(keys().snap)}` : ''}${CIRCLE_OK ? "; while holding the talk keys, moving the cursor round something circles it (no clicking; it snaps shut with a click when the circle closes, and loose lines don't count) and you'll see what they circled" : ''}${HOTKEYS_OK ? `; show the list ${keyWords(keys().list)}` : ''}.${HANDS_OK ? '' : ' Asking about an area, reading app windows, finding things on screen by their words and working other apps need the Tiro app, which isn\'t running here; draw there with x, y from a screenshot.'}`;
   const memory = `${open ? `Open commitments:\n${open}` : 'No open commitments.'}${done ? `\nDone today (ticked off on the list or by you; still shown struck through until midnight):\n${done}` : ''}
 ${facts.length ? `What you know about ${userName}${total > facts.length ? ` (${facts.length} most relevant of ${total})` : ''}:\n${facts.map((f) => `- ${f.id}: ${f.text}`).join('\n')}` : `You don't know anything lasting about ${userName} yet.`}${working ? `\n${working}` : ''}`;
@@ -820,7 +793,7 @@ async function playTour() {
   const voice = VOICE_ON() ? speech.start() : null;
   turnVoice = voice;
   // Like the rest of the app's drawings it can be cleared, and it also goes by itself a while after it's done.
-  try { await ink.show(tourBeats(userName, lookName(), t.goal, { mac: MAC }), `tour-${++tours}`, { fade: 45 }); }
+  try { await ink.show(tourBeats(userName, lookName(), t.goal), `tour-${++tours}`, { fade: 45 }); }
   catch (e) { console.error('tour', e); }
   finally { if (turnVoice === voice) turnVoice = null; voice?.end(); }
 }
@@ -996,7 +969,7 @@ function problem(area, err, ctx = {}) {
 // A spoken bubble has room to say where the fix is.
 const aloud = (p) => (p.where === 'model' ? `${p.text} Open the Model page in ${PANEL}.` : p.text);
 const linked = (p) => ({ code: p.code, copy: p.copy });
-const OS_LINE = `${MAC ? `macOS ${macVersion}` : LINUX ? distro || 'Linux' : `${os.type()} ${os.release()}`} (${process.platform} ${os.arch()})`;
+const OS_LINE = `${os.type()} ${os.release()} (${process.platform} ${os.arch()})`;
 // from: 'panel' or the setup guide, whichever asked; it hears how the copy went.
 async function copyProblem(from) {
   const ok = !!lastProblem && await copyText(detailsText(lastProblem, { version: VERSION, os: OS_LINE }), shellCall).catch(() => false);
@@ -1095,7 +1068,6 @@ function holdWake(on) {
   if (on) wakeHoldTimer = setTimeout(() => holdWake(busy), 3 * 60_000);
   if (on === wakeHeld) return;
   wakeHeld = on;
-  if (MAC) send({ type: 'wake_hold', on });
 }
 const listenSecs = () => listenWait(config.listenSecs);
 const autoListenOn = () => VOICE_OK && !!config.voice && !!config.autoListen && voiceReady() && !intro;
@@ -1439,9 +1411,7 @@ async function signOut(provider) {
 }
 
 function openUrl(url) {
-  if (process.platform === 'win32') return void winOpen(url);
-  const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
-  execFile(cmd, args, () => {});
+  winOpen(url);
 }
 
 // ---------- replies: text only, or voice and text ----------
@@ -1538,7 +1508,7 @@ function setGeminiVoice(v) {
 async function removeVoiceKey(id = tts().id) {
   const t = TTS[id];
   if (!t) return;
-  try { await secrets.delete(t.secret); } catch { return say(`I couldn't remove the key${MAC ? ' from your Keychain' : LINUX ? ' from your keyring' : ''}. Try again in a moment.`, 'concerned'); }
+  try { await secrets.delete(t.secret); } catch { return say(`I couldn't remove the key. Try again in a moment.`, 'concerned'); }
   if (config[`${id}KeySaved`]) { config[`${id}KeySaved`] = false; saveConfig(); }
   ttsKeys[id] = false;
   const used = t === tts();
@@ -1551,7 +1521,7 @@ async function removeVoiceKey(id = tts().id) {
 
 // A key for Fish Audio or Gemini: checked, saved, and that service is then the one that speaks.
 // note(text, bad, problem): typed into the panel or the setup guide, so how it went shows there too, next to the field.
-const KEY_STORE = MAC ? 'Keychain' : LINUX ? 'keyring' : '';
+const KEY_STORE = '';
 async function voiceKeyLogin({ provider = tts().id, thenVoice = false, given = null, note = null } = {}) {
   const t = TTS[provider];
   if (!t) return;
@@ -1636,7 +1606,7 @@ function onUpdateStatus(m) {
     if (manual || update.told !== m.version) {
       update.told = m.version;
       if (update.page) say(`Tiro ${m.version} is out. Pick Get Tiro ${m.version} in my ${TRAY} icon's menu for the download page.`, 'happy');
-      else say(`Tiro ${m.version} is ready. ${LINUX ? `Open my ${TRAY} icon's menu` : `Click my ${TRAY} icon`} and pick Install and Restart. I'll be right back.`, 'happy');
+      else say(`Tiro ${m.version} is ready. Click my ${TRAY} icon and pick Install and Restart. I'll be right back.`, 'happy');
     }
   } else if (m.state === 'page') {
     update.installing = false; menu();
@@ -1744,15 +1714,11 @@ async function saveDiagnostics() {
   say('Putting together a diagnostics file…', 'determined');
   try {
     const gg = path.join(HOME, '.tiro'); // where the app writes its own logs (log_stdio in main.rs), whatever the data dir
-    // Microphones as the system lists them (Windows' come from the voice helper, in the shell's section).
-    const audio = MAC ? run('system_profiler', ['SPAudioDataType'], 15000)
-      : LINUX ? Promise.all([run('pactl', ['info']), run('pactl', ['list', 'short', 'sources']), run('arecord', ['-l'])]).then((a) => a.join('\n\n'))
-        : Promise.resolve('');
-    const [shell, audioText] = await Promise.all([askShell(), audio]);
+    // Microphones come from the voice helper, in the shell's section.
+    const [shell, audioText] = await Promise.all([askShell(), Promise.resolve('')]);
     const { type: _t, ...shellOut } = shell;
     const system = {
-      platform: process.platform, arch: os.arch(), os: `${os.type()} ${os.release()}`, osVersion: os.version?.() ?? '', macVersion, distro,
-      session: SESSION || undefined, desktop: process.env.XDG_CURRENT_DESKTOP || undefined, waylandDisplay: process.env.WAYLAND_DISPLAY ? 'set' : undefined, display: process.env.DISPLAY || undefined,
+      platform: process.platform, arch: os.arch(), os: `${os.type()} ${os.release()}`, osVersion: os.version?.() ?? '',
       cpu: `${os.cpus()[0]?.model ?? '?'} × ${os.cpus().length}`, memory: `${Math.round(os.freemem() / 2 ** 30 * 10) / 10} of ${Math.round(os.totalmem() / 2 ** 30 * 10) / 10} GB free`,
       uptimeHours: Math.round(os.uptime() / 360) / 10, node: process.version,
       locale: Intl.DateTimeFormat().resolvedOptions().locale, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -1830,9 +1796,9 @@ function panelState() {
   const current = getModel(config.model);
   const doing = activity.doing();
   return {
-    version: VERSION, whatsNewFrom: config.whatsNewFrom ?? null, os: MAC ? 'mac' : process.platform === 'win32' ? 'win' : LINUX ? 'linux' : 'other', snap: SNAP_OK,
+    version: VERSION, whatsNewFrom: config.whatsNewFrom ?? null, os: 'win', snap: SNAP_OK,
     // Wayland: shortcuts are commands bound in the desktop's settings (bind), and there's no Cursor size.
-    wayland: WAYLAND, bind: HOTKEYS_OK ? null : BIND,
+    wayland: false, bind: HOTKEYS_OK ? null : BIND,
     status: busy ? { state: 'busy', text: doing ?? 'Thinking' } : loggingIn ? { state: 'busy', text: loginStatus || `Signing in to ${PROVIDER_LABELS[loggingIn]}` } : current ? { state: 'ready', text: 'Ready' } : { state: 'off', text: 'Not signed in' },
     busy, canNew: !busy && !!session?.messages.length,
     // The type-to-ask shortcut, for the Ask button's tooltip (none on Wayland).
@@ -1879,13 +1845,13 @@ function panelState() {
     geminiModel: config.geminiModel, geminiModels: GEMINI_CHOICES,
     studio: tts().local ? studioState() : null,
     voice: VOICE_OK ? {
-      on: !!config.voice, keys: HOTKEYS_OK ? talkSymbols() : null, ready: voiceReady(), mac: MAC, mute: config.muteWhileTalking !== false, autoListen: !!config.autoListen, listenEvery: !!config.listenEvery, listenSecs: listenSecs(), listenChoices: LISTEN_SECS, snoozeListen: !!config.snoozeListen, wakeWord: !!config.wakeWord, wakeName: wakeName(config),
+      on: !!config.voice, keys: HOTKEYS_OK ? talkSymbols() : null, ready: voiceReady(), mute: config.muteWhileTalking !== false, autoListen: !!config.autoListen, listenEvery: !!config.listenEvery, listenSecs: listenSecs(), listenChoices: LISTEN_SECS, snoozeListen: !!config.snoozeListen,
       // The mic picker: what the voice helper lists, the pick ('' is automatic) and the mic automatic uses now.
       mics: mics.list, mic: config.mic ?? '', micAuto: mics.list.find((x) => x.id === mics.auto)?.name ?? '',
       download: NEEDS_MODEL && config.voice && !voiceReady() ? { status: voiceModel.status, pct: voiceModel.total ? Math.floor((voiceModel.done / voiceModel.total) * 100) : 0, size: sizeLabel() } : null,
     } : null,
     brain: brainOf(config), today: todayPage.state(),
-    sound: !!config.sound, actions: !!config.allowActions, skipAllow: !!config.skipAllow, lite: !!config.lite, notch: MAC && notchScreen ? notchMode() : null, brief: { on: !!config.morningBrief, todoist: !!config.briefTodoist, canTodoist: HANDS_OK },  sync: { dir: config.syncDir || '', at: syncInfo.at, error: syncInfo.error, paused: !!syncInfo.paused }, 
+    sound: !!config.sound, actions: !!config.allowActions, skipAllow: !!config.skipAllow, lite: !!config.lite, brief: { on: !!config.morningBrief, todoist: !!config.briefTodoist, canTodoist: HANDS_OK },  sync: { dir: config.syncDir || '', at: syncInfo.at, error: syncInfo.error, paused: !!syncInfo.paused }, 
     login: login.supported ? { on: login.on } : null,
     update: { available: update.available, installing: update.installing, checking: update.checking, result: update.result, page: update.page, done: update.done },
     intro: !!intro,
@@ -1896,7 +1862,7 @@ function panelState() {
 
 
 const voiceConfig = () => {
-  send({ type: 'voice_config', enabled: VOICE_OK && config.voice && voiceReady(), mute: config.muteWhileTalking !== false, sound: !!config.sound, wake: MAC && !!config.wakeWord, wakeName: config.wakeName || '', ...(NEEDS_MODEL ? { model: MODEL_DIR } : {}) });
+  send({ type: 'voice_config', enabled: VOICE_OK && config.voice && voiceReady(), mute: config.muteWhileTalking !== false, sound: !!config.sound, ...(NEEDS_MODEL ? { model: MODEL_DIR } : {}) });
   // The native listening pill beside the cursor stays hidden while the notch capsule is where I appear.
   send({ type: 'pill', on: notchMode() === 'off' });
 };
@@ -1955,7 +1921,7 @@ function onVoice(m) {
   else if (m.type === 'voice_error') {
     if (m.code === 'nothing_heard' && snap) { snap.waitingVoice = false; return; }
     if (m.code === 'model_missing') startVoiceDownload();
-    else if (m.code === 'permission' && !MAC) {
+    else if (m.code === 'permission') {
       say('Windows is blocking the microphone. In the Privacy settings I just opened, turn on microphone access and "Let desktop apps access your microphone".', 'concerned');
       openUrl('ms-settings:privacy-microphone');
     } else if (m.code === 'permission') {
@@ -2100,7 +2066,7 @@ async function onMenu(id, via) {
     const prep = await prepareFolder(r.dir, pass).catch((e) => ({ error: `I couldn't write to that folder (${String(e?.code ?? e?.message ?? e).slice(0, 40)}).` }));
     if (prep.error) { say(prep.error, 'concerned'); return; }
     try { await secrets.set(SYNC_KEY, prep.key.toString('base64')); config.syncKeySaved = true; } catch {
-      say(`I couldn't save the sync key${MAC ? ' in your Keychain' : LINUX ? ' in your keyring' : ''}, so I won't sync. Try again in a moment.`, 'concerned'); return;
+      say(`I couldn't save the sync key, so I won't sync. Try again in a moment.`, 'concerned'); return;
     }
     syncKey = prep.key;
     if (!config.syncDevice) config.syncDevice = newDevice();
@@ -2121,7 +2087,6 @@ async function onMenu(id, via) {
     config.lite = !config.lite; saveConfig(); agentStale = true; menu();
     say(config.lite ? 'Lite mode on. I\'ll stick to talking, your list, opening things and web search.' : 'Lite mode off. Everything\'s back on.', 'happy');
   }
-  else if ((id === 'notch_off' || id === 'notch_spread' || id === 'notch_drop') && MAC) { config.notch = id.slice(6); saveConfig(); notchUi(); voiceConfig(); menu(); }
   else if (id === 'actions') {
     config.allowActions = !config.allowActions; agents.setAllow(config.allowActions); saveConfig(); menu(); // live section picks this up
     say(config.allowActions ? 'File edits and commands are on. I promise to be careful.' : 'File edits and commands are off. Hands to myself!', config.allowActions ? 'determined' : 'happy');
@@ -2143,15 +2108,6 @@ async function onMenu(id, via) {
   else if (id === 'listenevery') { config.listenEvery = !config.listenEvery; saveConfig(); agentStale = true; menu(); }
   else if (id.startsWith('listensecs:') && LISTEN_SECS.includes(Number(id.slice(11)))) { config.listenSecs = Number(id.slice(11)); saveConfig(); menu(); }
   else if (id === 'snoozelisten') { config.snoozeListen = !config.snoozeListen; saveConfig(); menu(); }
-  else if (id === 'wakeword' && MAC) { config.wakeWord = !config.wakeWord; saveConfig(); agentStale = true; voiceConfig(); menu(); }
-  else if (id === 'wakename' && MAC) {
-    const typed = await ask({ prompt: `Wake word: what should come after "Hey"? (now ${wakeName(config)}; leave empty for Tiro)`, placeholder: 'Jarvis' });
-    if (typed == null) return;
-    const r = cleanWakeName(typed);
-    if (!r.ok) { say(r.why, 'concerned'); return; }
-    config.wakeName = r.name; saveConfig(); agentStale = true; voiceConfig(); menu();
-    say(config.wakeWord ? `Got it. Say "Hey ${wakeName(config)}" and I'm listening.` : `Saved. Turn on the wake word, then say "Hey ${wakeName(config)}".`, 'happy');
-  }
   else if (id === 'voicedl') startVoiceDownload();
   else if (id === 'voice') {
     config.voice = !config.voice; saveConfig(); voiceConfig(); menu();
@@ -2280,7 +2236,7 @@ function obState() {
     platform: process.platform,
     // What this computer can do (platform.mjs): Ask About an Area, circling while talking, and on Wayland no
     // global shortcuts (bind: the commands to bind in the desktop's settings instead) and no Cursor size.
-    snap: SNAP_OK, circle: CIRCLE_OK, session: SESSION, bind: HOTKEYS_OK ? null : BIND, sizes: SIZES,
+    snap: SNAP_OK, circle: CIRCLE_OK, session: '', bind: HOTKEYS_OK ? null : BIND, sizes: SIZES,
     step: config.onboardStep ?? 0,
     oauth: signInCards(Object.keys(OAUTH), (id) => oauthOn.get(id), PROVIDER_LABELS),
     apikey: keyCards(AUTH_PROVIDERS, (id) => keyOn.get(id)),
@@ -2292,7 +2248,6 @@ function obState() {
     voice: VOICE_OK && config.voice,
     autoListen: !!config.autoListen,
     lite: !!config.lite,
-    wakeWord: MAC && !!config.wakeWord,
     voiceModel: NEEDS_MODEL ? { status: voiceModel.status, done: voiceModel.done, total: voiceModel.total, error: voiceModel.error, size: sizeLabel() } : null,
     filesAsked: config.filesAsked,
     look: config.look ?? 'classic',
@@ -2350,7 +2305,6 @@ async function onGuide(m) {
   else if (m.type === 'set_login') setLogin(!!m.on);
   else if (m.type === 'ob_lite') { config.lite = !!m.on; saveConfig(); agentStale = true; menu(); obState(); }
   else if (m.type === 'ob_autolisten') { config.autoListen = !!m.on; saveConfig(); menu(); obState(); }
-  else if (m.type === 'ob_wake' && MAC) { config.wakeWord = !!m.on; saveConfig(); agentStale = true; voiceConfig(); menu(); obState(); }
   else if (m.type === 'ob_voice_model') getVoiceModel();
   else if (m.type === 'ob_look') setLook(m.look);
   else if (m.type === 'ob_size' && SIZES.some(([s]) => s === m.size)) { config.size = m.size; saveConfig(); ui({ kind: 'size', size: config.size }); menu(); }
@@ -2509,8 +2463,7 @@ menu();
 overlays();
 sendKeys();
 send({ type: 'login_item' });
-if (MAC) send({ type: 'notch_screen' });
-logLine('start', { version: VERSION, platform: process.platform, ...(LINUX ? { session: SESSION } : {}), model: config.model, ...(MIGRATED.length ? { moved: MIGRATED } : {}) });
+logLine('start', { version: VERSION, platform: process.platform, model: config.model, ...(MIGRATED.length ? { moved: MIGRATED } : {}) });
 // Windows 11: the tray icon is shown next to the clock once per program (wintray.mjs); after that, hiding it again
 // is up to them. Remembered by the program's path, not a yes/no: the settings copied over from Roamies said
 // trayShown: true for roamies.exe, so tiro.exe's icon was never shown. Explorer adds its entry a moment after the

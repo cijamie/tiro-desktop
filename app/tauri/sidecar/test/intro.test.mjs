@@ -52,12 +52,12 @@ console.log('intro tests: passed');
   assert.equal(goalFrom([{ text: 'Is a YouTuber' }, { text: 'Wants to launch a course by March' }]), 'Wants to launch a course by March');
   assert.equal(goalFrom([{ text: 'Likes coffee' }]), null);
   const withGoal = tourBeats('Ken', 'Tiro', 'Wants to launch a course by March');
-  const without = tourBeats('Ken', 'Tiro', null, { mac: false });
+  const without = tourBeats('Ken', 'Tiro', null);
   for (const beats of [withGoal, without]) { assert.ok(DrawArgs.safeParse({ beats }).success, 'the tour fits the draw schema'); assert.deepEqual(checkDraw({ beats }), []); }
   assert.equal(withGoal.at(-1).marks[0].kind, 'medal');
   assert.ok(!without.some((b) => b.marks.some((m) => m.kind === 'medal')), 'no goal, no medal');
   assert.ok(withGoal.slice(0, 3).every((b) => b.marks[0].kind === 'ticket' && b.marks[0].action?.do === 'ask'), 'each ticket has a button that asks');
-  assert.match(without[0].marks[0].action.value, /wallpaper/, 'no words-on-screen how-to off the Mac');
+  assert.match(without[0].marks[0].action.value, /wallpaper/, 'the how-to ticket is a Windows one');
   console.log('tour tests: passed');
 }
 // The capability showcase: fixed beats that pass the draw tool's checks, one card per listed capability, in order.

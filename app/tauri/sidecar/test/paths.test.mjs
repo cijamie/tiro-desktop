@@ -42,9 +42,9 @@ assert.equal(read('AppData', 'Local', 'Tiro', 'tiro.exe'), 'new app', 'the insta
 assert.equal(read('AppData', 'Local', 'Roamies', 'roamies.exe'), 'old app');
 
 // Second start: nothing to do, and newer settings are never overwritten.
-fs.writeFileSync(path.join(home, '.tiro', 'sidekick.json'), '{"look":"jarvis"}');
+fs.writeFileSync(path.join(home, '.tiro', 'sidekick.json'), '{"look":"anime"}');
 assert.deepEqual(migrateFromRoamies({ home, local }), []);
-assert.equal(read('.tiro', 'sidekick.json'), '{"look":"jarvis"}');
+assert.equal(read('.tiro', 'sidekick.json'), '{"look":"anime"}');
 
 // A fresh computer: nothing to move.
 assert.deepEqual(migrateFromRoamies({ home: fs.mkdtempSync(path.join(os.tmpdir(), 'tiro-paths-new-')), local: '' }), []);
