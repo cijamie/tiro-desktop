@@ -4,7 +4,7 @@
 
 Jamie's assistant on the Windows screen, and the PC half of [Tiro](https://tiro.jamies.dev). It sits beside the
 cursor, listens while you hold **Ctrl+Alt**, opens a text box when you tap **Ctrl+Shift**, sees the screen, points
-at things, and can read and work other apps (with your OK). It talks with the JARVIS voice (Fish Audio).
+at things, and can read and work other apps (with your OK). It talks in its own Fish Audio voice.
 
 ## Install
 
@@ -43,7 +43,7 @@ and is AGPL-3.0 too (see [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_P
 - **2026-11-17, split into its own app:** Tiro's name, icon, colours and personality throughout, including the code
   (`window.Tiro`, `TIRO_*` settings, `tiro.exe`, `tiro-voice`, `tiro-hands`); settings and data in `~/.tiro` (moved
   from `~/.gg` on first start); Windows only (the macOS and Linux code, Swift helpers and their builds were removed);
-  one look (Tiro, with JARVIS's Fish Audio voice) instead of Roamies' looks; focus mode and game mode removed;
+  one look (Tiro, with its own Fish Audio voice) instead of Roamies' looks; focus mode and game mode removed;
   updates from this repo only; Roamies' release notes and community links replaced.
 - **Tiro tools** (`app/tauri/sidecar/tiro.mjs`): ask the Tiro server, send to the phone, save to the inbox, add a
   to-do, set a reminder, and read the highlighted text in the app in front.

@@ -7,10 +7,10 @@ const SENTENCE_END = /[.!?…]+["'”’)\]]*(?=\s)/g;
 const SCREEN_ONLY = /^\s*(?:[-*•+]\s|\d{1,2}[.)]\s|>|#{1,6}\s|\||sources?\s*:)/i;
 const LONG = 220; // speak a run-on sentence in pieces rather than wait for its end
 
-// Fish Audio S2 voice cues: [chuckling], [warm], [break]… shape how a line is said (tested on the JARVIS voice:
+// Fish Audio S2 voice cues: [chuckling], [warm], [break]… shape how a line is said (tested on Tiro's voice:
 // they're performed, not read out). Only these are kept for the voice; on screen they're never shown.
 // Every cue in Fish Audio's emotion guide (docs.fish.audio/developer-guide/core-features/emotions), plus the
-// extra moods its examples use and a few of ours. All verified on the JARVIS voice by voice-samples.
+// extra moods its examples use and a few of ours. All verified on Tiro's voice by voice-samples.
 export const VOICE_CUES = {
   // 24 basic and 25 advanced emotions, then the ones Fish's examples use, then ours.
   emotions: [

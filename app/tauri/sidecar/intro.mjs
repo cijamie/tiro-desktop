@@ -7,7 +7,7 @@ import { EMOTES } from './reply.mjs';
 export const QUESTIONS = 4;
 const NOTE = '[Getting to know you: a note from the app, not typed by the user]';
 
-// me: the Tiro's own name (its look's: Tiro, JARVIS, Sarah…).
+// me: Tiro's own name.
 export const opener = (name, me = 'Tiro') => `Hi ${name}, I'm ${me}! I'm here to help you get things done and keep you on track, whatever you're going for. I'm just curious about you, so I've got four quick questions. What are you working on these days?`;
 
 const RULES = (name) => `This is a short, relaxed get-to-know-you chat; ${name} just set you up. Be a curious friend who happens to be a little pixel creature on their screen, not an interviewer or a coach. You want the general shape of their days: what they do, what they're working on or learning, the apps and projects they live in (by name), and ONE real goal in their words (a launch, a number, a deadline, a thing they want to exist; doing their job well is a full answer, never push for a bigger dream). Never assume they run a business. Never ask about their personal life, what's blocking them, how they'll get there, or their name. No tools this chat. Keep it in bubbles: no "- " lines, no dashes of any kind.
@@ -79,11 +79,11 @@ export function splitTurn(reply) {
 const GOAL = /\b(goal|want(?:s|ed)? to|aim|aiming|launch|build|grow|finish|reach|hit|ship|get to|working towards?|plans? to|dream)\b/i;
 /** The fact that reads most like their goal, or null. */
 export const goalFrom = (facts = []) => facts.map((f) => String(f.text ?? f)).find((t) => GOAL.test(t)) ?? null;
-/** The tour's beats: three tickets and, with a goal, its medal. mac: whether the how-to ticket can use words on screen. */
-export function tourBeats(name, me = 'Tiro', goal = null, { mac = true } = {}) {
+/** The tour's beats: three tickets and, with a goal, its medal. */
+export function tourBeats(name, me = 'Tiro', goal = null) {
   const ask = (value) => ({ do: 'ask', value });
   const beats = [
-    { say: `[warm] Okay ${name}, here's what I can do. Tap one to try it.`, marks: [{ kind: 'ticket', n: 1, title: 'Show you how', text: "Ask how to do something in an app and I'll draw each step right on your screen.", label: 'Try it', action: ask(mac ? 'How do I take a screenshot on this Mac?' : 'How do I change my wallpaper?') }] },
+    { say: `[warm] Okay ${name}, here's what I can do. Tap one to try it.`, marks: [{ kind: 'ticket', n: 1, title: 'Show you how', text: "Ask how to do something in an app and I'll draw each step right on your screen.", label: 'Try it', action: ask('How do I change my wallpaper?') }] },
     { say: "I can sketch out anything you're curious about.", marks: [{ kind: 'ticket', n: 2, title: 'Explain it', text: 'Graphs, timelines, molecules, even little 3D models, drawn while I talk.', label: 'Try it', action: ask('Explain compound interest with a graph') }] },
     { say: "And I'll keep you to what you say you'll do.", marks: [{ kind: 'ticket', n: 3, title: 'Keep you on track', text: "Tell me what you'll do and when, and I'll nudge you.", label: 'Try it', action: ask('Remind me in 10 minutes to stretch') }] },
   ];

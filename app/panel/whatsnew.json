@@ -6,7 +6,7 @@
       "items": [
         { "kind": "new", "title": "All Tiro now", "text": "Tiro desktop is its own app, split from Roamies. Credit to Ken Kai on the About page." },
         { "kind": "improved", "title": "Your settings moved", "text": "Settings, memory and logs now live in your .tiro folder. Nothing was lost." },
-        { "kind": "removed", "title": "Other looks", "text": "JARVIS and the characters are gone. Tiro is the one look, with the JARVIS voice." },
+        { "kind": "removed", "title": "Other looks", "text": "Roamies' other looks are gone. Tiro is the one look, with its own voice." },
         { "kind": "removed", "title": "Focus and game mode", "text": "Focus blocks and the game sidebar were removed." },
         { "kind": "removed", "title": "Mac and Linux", "text": "Tiro desktop is built for Windows only now." }
       ]

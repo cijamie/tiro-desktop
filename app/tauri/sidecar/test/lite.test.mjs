@@ -18,7 +18,7 @@ assert.ok(size(lite) < size(tools) / 4, `lite tools ${size(lite)} chars vs ${siz
 assert.ok(LITE_BUDGET <= 16_000 && LITE_TURNS <= 8);
 
 // The prompt: short, says what Lite mode can't do and to say so (with where to switch it off) instead of trying.
-const o = { name: 'JARVIS', body: 'a sleek assistant', user: 'Sam', version: '0.1.41', panel: 'the panel (click my icon)', voice: false };
+const o = { name: 'Tiro', body: 'a sleek assistant', user: 'Sam', version: '0.1.41', panel: 'the panel (click my icon)', voice: false };
 const text = liteSystem(o), voice = liteSystem({ ...o, voice: true });
 assert.ok(text.length < 3000, `${text.length} chars`);
 assert.match(text, /Lite mode is on/);

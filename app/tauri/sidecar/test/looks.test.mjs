@@ -3,15 +3,15 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_VOICE } from '../fish.mjs';
 
-// Tiro is the only look (Roamies' JARVIS and characters were removed in the split): it has JARVIS's Fish Audio voice,
+// Tiro is the only look (Roamies' other looks were removed in the split): it has its own Fish Audio voice,
 // and the setup guide and Settings agree on its name and greeting.
 const src = (p) => readFileSync(fileURLToPath(new URL(p, import.meta.url)), 'utf8');
 const side = src('../sidekick.mjs'), guide = src('../../../onboarding/onboarding.js');
 const looks = [...side.slice(side.indexOf('const LOOKS = ['), side.indexOf('];', side.indexOf('const LOOKS = ['))).matchAll(/\['(\w+)', '([^']+)', (DEFAULT_VOICE|'(\w+)')\]/g)];
 assert.deepEqual(looks.map((m) => [m[1], m[2]]), [['classic', 'Tiro']]);
-assert.equal(looks[0][4], 'e13fa398a7f445a685316a3de6089ce7', 'Tiro speaks with JARVIS\'s voice');
+assert.equal(looks[0][4], 'e13fa398a7f445a685316a3de6089ce7', 'Tiro\'s Fish Audio voice');
 assert.equal(DEFAULT_VOICE, '2680da81de8348a68e1f4dbaa79272f1');
-assert.ok(!/config\.fishVoice/.test(side), 'a saved fishVoice (the old JARVIS default) is never used');
+assert.ok(!/config\.fishVoice/.test(side), 'a saved fishVoice (the old Roamies default) is never used');
 assert.match(side, /if \(!LOOKS\.some\(\(\[id\]\) => id === config\.look\)\) config\.look = 'classic';/, 'a Roamies look saved in settings becomes Tiro');
 assert.ok(guide.includes("const LOOKS = [['classic', 'Tiro']]"), 'the setup guide offers Tiro only');
 {
@@ -22,7 +22,7 @@ assert.ok(guide.includes("const LOOKS = [['classic', 'Tiro']]"), 'the setup guid
   assert.deepEqual(obj(guide, 'LOOK_QUIPS'), said, 'the setup guide shows the spoken greeting');
 }
 for (const page of ['../../../desktop.html', '../../../panel/index.html', '../../../onboarding/index.html']) {
-  assert.ok(!/overlay\/(people|jarvis|notch|sidebar)\.js/.test(src(page)), `${page} loads none of the removed looks`);
+  assert.ok(!/overlay\/(people|j[a]rvis|notch|sidebar)\.js/.test(src(page)), `${page} loads none of the removed looks`);
 }
 console.log('looks tests: passed');
 
