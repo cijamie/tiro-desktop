@@ -27,11 +27,11 @@ assert.match(css, /--mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains M
 assert.equal(theme.mono, 'ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace');
 assert.match(css, /:focus-visible \{ outline: 1px solid var\(--acc\)/, 'keyboard focus: a thin cyan ring');
 
-// The figure's levels: the background up to the accent, then the text colour.
+// The figure's levels: the background up to the accent, cyan only.
 assert.equal(theme.sprite.length, 5);
 assert.deepEqual(theme.sprite[0], theme.rgb.bg);
-assert.deepEqual(theme.sprite[3], theme.rgb.acc);
-assert.deepEqual(theme.sprite[4], theme.rgb.text);
+assert.deepEqual(theme.sprite[4], theme.rgb.acc);
+for (let i = 1; i < 5; i++) assert.ok(theme.sprite[i][2] > theme.sprite[i - 1][2], 'each level is brighter cyan than the last');
 
 // Every colour in a restyled page is a token, or a token at some opacity. (The cursor in the drawing demo is the
 // system arrow: white with a black edge.)
@@ -82,4 +82,23 @@ for (const page of ['panel/panel.js', 'onboarding/onboarding.js', 'overlay/12-si
   assert.ok(!/glow: 0\.\d/.test(src(page)), `${page}: the figure has no glow`);
   assert.ok(src(page).includes('TiroTheme.sprite'), `${page}: the figure uses the theme's colours`);
 }
+// The overlay paints with the tokens too: no colour literals (the one '#fff' is agent.js's glyph mask, never
+// shown), no glow or blur, no pixel fonts, and the CRT entrance is gone.
+const OVERLAY = ['glass.js', 'agent.js', 'agent-home.js', 'agent-panel.js', 'ask-bar.js', 'ink.js', 'pen.js', 'minis.js', 'agent-cards.js', '12-sidekick.js'];
+for (const f of OVERLAY) {
+  const text = src(`overlay/${f}`).replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const hexes = [...text.matchAll(/#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/g)].map((m) => m[0]).filter((h) => !(f === 'agent.js' && h === '#fff'));
+  assert.deepEqual(hexes, [], `overlay/${f}: colours come from the theme`);
+  for (const [, r, g, b] of text.matchAll(/rgba?\((\d+),\s*(\d+),\s*(\d+)/g)) assert.ok(OK.has(`${r},${g},${b}`), `overlay/${f}: rgb(${r}, ${g}, ${b}) is not a token`);
+  assert.ok(!/shadowBlur = [1-9a-z]|filter = `blur|drop-shadow|Martian Mono|"Doto"/.test(text), `overlay/${f}: no glow, blur or pixel fonts`);
+}
+assert.ok(!/'crt'/.test(src('overlay/agent.js').match(/const ORDER = \[[^\]]*\]/)[0]), 'no CRT entrance');
+assert.match(src('overlay/12-sidekick.js'), /pattern: 'flat'/, 'the figure is shaded flat, not dithered');
+const dhtml = src('desktop.html');
+assert.ok(dhtml.includes('theme/tokens.css') && !/Martian|Doto|fonts\//.test(dhtml), 'the overlay page loads the tokens and no web fonts');
+// The mic waveform is the phosphor green, in the bubble and in the setup guide.
+assert.match(src('overlay/agent.js'), /ctx\.fillStyle = G\.WAVE;/);
+assert.match(src('onboarding/onboarding.css'), /\.meter i \{ width: 3px; background: var\(--wave\); \}/);
+// The voice helper draws the pen into captures in the same cyan.
+assert.match(src('tauri/src-tauri/voice-win/src/ink.rs'), /pass\(r, \[0x22 as f64, 0xd3 as f64, 0xee as f64\]/);
 console.log('theme tests passed');

@@ -1,7 +1,7 @@
 // Type to ask: a slim text field beside the cursor, opened by a tap of the typing shortcut, the Ask button, the tray
 // or `tiro --ask`. It rides with the cursor like the listening pill does (voice/wave.swift), so it's always where
 // you're looking and never in the way, and it's a real textarea: caret, selection, paste and IME just work.
-// The research card's look (agent-panel.js): the stepped pixel frame, dark glass, Martian Mono.
+// The research card's look (agent-panel.js): TiroDash's panel with a cyan edge while it has the keys, monospace type.
 // Click away with nothing typed and it closes; with something typed it waits where it is until you click it again.
 // The overlay is click-through, so the host asks Tiro.askBarHit(x, y) whether the cursor is over it.
 // API: Tiro.askBar.open({ placeholder, label, cursor, onKey, onPress, onLeft }) .ptr(x, y) .focus() .close() .value .isOpen
@@ -21,34 +21,27 @@
 
   const LINE = 18, LINES = 5;
   const css = `
-.ab { --ink: #fdf1ea; --ink-2: #d5c2b7; --ink-3: #b59c8d; --accent: #f5ac82; --line-hi: #764d35; --line-hot: #b77a57; --s: 2px;
-  --notch: polygon(
-    calc(var(--s) * 2) 0, calc(100% - var(--s) * 2) 0, calc(100% - var(--s) * 2) var(--s), calc(100% - var(--s)) var(--s),
-    calc(100% - var(--s)) calc(var(--s) * 2), 100% calc(var(--s) * 2), 100% calc(100% - var(--s) * 2),
-    calc(100% - var(--s)) calc(100% - var(--s) * 2), calc(100% - var(--s)) calc(100% - var(--s)),
-    calc(100% - var(--s) * 2) calc(100% - var(--s)), calc(100% - var(--s) * 2) 100%, calc(var(--s) * 2) 100%,
-    calc(var(--s) * 2) calc(100% - var(--s)), var(--s) calc(100% - var(--s)), var(--s) calc(100% - var(--s) * 2),
-    0 calc(100% - var(--s) * 2), 0 calc(var(--s) * 2), var(--s) calc(var(--s) * 2), var(--s) var(--s), calc(var(--s) * 2) var(--s));
-  position: fixed; left: 0; top: 0; z-index: 6; width: 320px; max-width: calc(100vw - 16px); box-sizing: border-box; padding: 2px;
-  background: var(--line-hot); color: #130b06; clip-path: var(--notch); cursor: text; will-change: transform;
+.ab { --ink: var(--text); --ink-2: var(--dim); --ink-3: var(--muted); --accent: var(--acc); --line-hi: var(--line2); --line-hot: var(--line2); --note: var(--dim);
+  position: fixed; left: 0; top: 0; z-index: 6; width: 320px; max-width: calc(100vw - 16px); box-sizing: border-box;
+  border: 1px solid var(--acc); border-radius: var(--r); background: var(--panel); color: var(--ink); cursor: text; will-change: transform;
   opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .14s cubic-bezier(.2, .8, .2, 1), visibility 0s .14s; }
 .ab.on { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .14s cubic-bezier(.2, .8, .2, 1); }
-.ab-in { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; background: rgba(19, 11, 6, .97); color: var(--ink); clip-path: var(--notch); }
-.ab-mark { flex: none; width: 6px; height: 6px; margin-top: 6px; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.ab-in { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; background: transparent; color: var(--ink); }
+.ab-mark { flex: none; width: 6px; height: 6px; margin-top: 6px; background: var(--accent); border-radius: 50%; }
 .ab-in .ab-text { display: block; flex: 1; min-width: 0; height: 18px; box-sizing: border-box; margin: 0; padding: 0; border: 0; border-radius: 0;
   resize: none; overflow-x: hidden; overflow-y: hidden; overflow-wrap: anywhere; overscroll-behavior: contain;
   scrollbar-width: thin; scrollbar-color: var(--line-hi) transparent; appearance: none; -webkit-appearance: none;
   background-color: transparent; color: var(--ink); caret-color: var(--accent);
-  font: 500 13.5px/18px "Martian Mono", ui-monospace, Menlo, monospace; cursor: text; }
+  font: 500 13.5px/18px var(--mono); cursor: text; }
 /* Focus shows on the frame (lit while it has the keys, dull while it waits) and as the caret. The see-through
    outline is the ring forced-colours modes draw instead. */
 .ab-in .ab-text:focus-visible { outline: 2px solid transparent; outline-offset: 0; }
 .ab-in .ab-text::placeholder { color: var(--ink-3); opacity: 1; }
-.ab-in .ab-text::selection { background: #5a3824; color: #fdf1ea; }
+.ab-in .ab-text::selection { background: rgba(34, 211, 238, .3); color: var(--text); }
 /* Waiting with something typed while you're in another app. */
-.ab.away { background: var(--line-hi); color: #fdf1ea; }
+.ab.away { background: var(--line-hi); color: var(--text); }
 .ab.away .ab-in .ab-text { color: var(--ink-2); }
-.ab.away .ab-mark { background: var(--line-hi); box-shadow: none; }
+.ab.away .ab-mark { background: var(--line-hi); }
 @media (prefers-reduced-motion: reduce) { .ab, .ab.on { transition: none; } }
 @media (forced-colors: active) { .ab { clip-path: none; padding: 0; border: 2px solid CanvasText; } .ab-in { clip-path: none; } .ab-mark { background: CanvasText; box-shadow: none; } }
 `;

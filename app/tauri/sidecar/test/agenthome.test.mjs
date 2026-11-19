@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-// Without a document only the pure parts load, which is all that's tested here.
+// Without a document only the pure parts load, which is all that's tested here. The theme comes first, as in desktop.html.
 const window = { Tiro: {} };
+vm.runInNewContext(fs.readFileSync(new URL('../../../theme/tokens.js', import.meta.url), 'utf8'), { window });
 for (const f of ['minis.js', 'agent-home.js']) vm.runInNewContext(fs.readFileSync(new URL(`../../../overlay/${f}`, import.meta.url), 'utf8'), { window, Math, Map });
 const { fileKind, icon, KINDS } = window.Tiro.minis;
 
@@ -17,15 +18,15 @@ const kinds = {
 for (const [name, kind] of Object.entries(kinds)) assert.equal(fileKind(name), kind, name);
 assert.equal(fileKind('build', true), 'folder', 'a folder by its flag');
 assert.equal(KINDS.length, 13);
-// Each icon: a 12 x 12 grid of crisp cells in Tiro's colour family only, different from every other icon.
-const TEAL = new Set(['#130b06', '#5a2e14', '#b86434', '#f5ac82', '#fdf0e8']); // Tiro's rust family (recoloured from Tiro's teal)
+// Each icon: a 12 x 12 grid of crisp cells in the theme's colours only (TiroDash's tokens), different from every other icon.
+const TEAL = new Set(['#0b0f19', '#273244', '#6b7280', '#22d3ee', '#e5e7eb']); // bg, line2, muted, acc, text
 const seen = new Set();
 for (const k of KINDS) {
   const svg = icon(k);
   assert.match(svg, /^<svg viewBox="0 0 12 12" width="36" height="36" shape-rendering="crispEdges" aria-hidden="true" focusable="false">/, k);
   const cells = [...svg.matchAll(/<rect x="(\d+)" y="(\d+)" width="1" height="1" fill="(#[0-9a-f]{6})"\/>/g)];
   assert.ok(cells.length > 20, `${k} has a shape`);
-  for (const [, x, y, fill] of cells) { assert.ok(+x < 12 && +y < 12, `${k} stays in its grid`); assert.ok(TEAL.has(fill), `${k}: ${fill} is a Tiro-family colour`); }
+  for (const [, x, y, fill] of cells) { assert.ok(+x < 12 && +y < 12, `${k} stays in its grid`); assert.ok(TEAL.has(fill), `${k}: ${fill} is a theme colour`); }
   assert.ok(!seen.has(svg), `${k} looks different from the others`);
   seen.add(svg);
 }

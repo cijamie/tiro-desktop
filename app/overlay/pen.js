@@ -1,13 +1,13 @@
 // The user's pen on Windows: while the talk keys are held, the voice helper follows the cursor and sends its trail
 // here (voice "ink" messages, in global screen points; voice-win/src/ink.rs). Drawn like voice/ink.swift draws it
-// on macOS: teal with a dark edge and a soft glow, dimmer until it snaps shut round something (then a glow pulse and
-// a tick), and lines that never close fade. The picture sent with what was said is the helper's own capture, with
+// before: the accent with a dark edge, no glow, dimmer until it snaps shut round something (then it swells for a
+// moment), and lines that never close fade. The picture sent with what was said is the helper's own capture, with
 // the strokes drawn into it; this canvas is left out of captures like the rest of the overlay.
 (() => {
   const R = window.Tiro;
   if (!R || typeof document === 'undefined') return;
-  // The pen's colours and size, the same as ink.js and voice/ink.swift.
-  const ACC = '#78ffe2', EDGE = 'rgba(3,39,34,0.6)', RADIUS = 2.8;
+  // The pen's colours and size (theme/tokens.js), the same as ink.js.
+  const ACC = window.TiroTheme.acc, EDGE = window.TiroTheme.rgba('bg', 0.6), RADIUS = 2.8;
   const reducedMQ = matchMedia('(prefers-reduced-motion: reduce)');
   const loc = (x, y) => [x - (R.origin?.x ?? 0), y - (R.origin?.y ?? 0)];
   let cv = null, ctx = null, raf = 0, cur = null;
@@ -50,19 +50,17 @@
         if (k > 0) a *= 1 - k;
         moving = true;
       }
-      let glow = 6;
+      let swell = 0;
       if (s.pulseAt != null) {
         const k = (t - s.pulseAt) / 320;
-        if (k < 1) { glow = 6 + 10 * (k < 0.5 ? k * 2 : 2 - k * 2); moving = true; } else s.pulseAt = null;
+        if (k < 1) { swell = 1.5 * (k < 0.5 ? k * 2 : 2 - k * 2); moving = true; } else s.pulseAt = null;
       }
       ctx.globalAlpha = a;
       path(s.pts);
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = EDGE; ctx.lineWidth = RADIUS * 2 + 2.5; ctx.stroke();
-      ctx.shadowColor = 'rgba(120,255,226,0.75)'; ctx.shadowBlur = glow;
-      ctx.strokeStyle = ACC; ctx.lineWidth = RADIUS * 2; ctx.stroke();
+      ctx.strokeStyle = EDGE; ctx.lineWidth = RADIUS * 2 + 2.5 + swell; ctx.stroke();
+      ctx.strokeStyle = ACC; ctx.lineWidth = RADIUS * 2 + swell; ctx.stroke();
     }
-    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
     raf = moving ? requestAnimationFrame(paint) : 0;
   }
   const redraw = () => { if (!raf) raf = requestAnimationFrame(paint); };

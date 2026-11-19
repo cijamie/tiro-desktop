@@ -8,12 +8,16 @@
   if (!R || typeof document === 'undefined') return;
 
   // ---------------------------------------------------------------- look
-  const P = 4, MONO = '"Martian Mono", ui-monospace, monospace', DOTO = '"Doto", "Martian Mono", ui-monospace, monospace';
-  const ACC = '#f5ac82', HOT = '#fdf0e8', MID = '#b86434', DEEP = '#5a2e14', EDGE = 'rgba(36, 17, 6, 0.6)';
-  const GLASS = 'rgba(23, 13, 7, 0.94)', TEXT = '#fceadf', DIM = '#b59c8d', INKDARK = '#241106';
-  const TONES = { accent: ACC, teal: '#78ffe2', amber: '#ffcf5c', coral: '#ff8a7a', lilac: '#b9a4ff', sky: '#7cc8ff', lime: '#b6f36b', red: '#ff6b6b', white: '#fdf1ea' };
-  const LED = ['#130b06', '#5a2e14', '#b86434', '#f5ac82', '#fdf0e8'];
-  const B4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  // TiroDash's look (theme/tokens.js): monospace for small type, the system sans for headings (DOTO was the dot-matrix
+  // display face; the name stays so the drawings' code reads the same).
+  const T = window.TiroTheme;
+  const P = 4, MONO = T.mono, DOTO = T.sans;
+  const ACC = T.acc, HOT = T.text, MID = T.muted, DEEP = T.line2, EDGE = T.rgba('bg', 0.6);
+  const GLASS = T.panel, TEXT = T.text, DIM = T.dim, INKDARK = T.accInk;
+  // A drawing's tones, on the tokens: the accent, state colours, and the greys and text for the rest.
+  const TONES = { accent: ACC, teal: ACC, amber: T.warn, coral: T.bad, lilac: T.muted, sky: T.dim, lime: T.ok, red: T.bad, white: T.text };
+  // The five levels a 3D model is shaded in: the Tiro figure's cyan ramp.
+  const LED = T.sprite.map((c) => '#' + c.map((v) => v.toString(16).padStart(2, '0')).join(''));
   const tone = (t) => TONES[t] || ACC;
   const now = () => performance.now() / 1000;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -49,12 +53,8 @@
     r = clamp(r, 0, Math.min(w, h) / 2);
     return [...arc(x + w - r, y + r, r, r, -Math.PI / 2, 0, 10), ...arc(x + w - r, y + h - r, r, r, 0, Math.PI / 2, 10), ...arc(x + r, y + h - r, r, r, Math.PI / 2, Math.PI, 10), ...arc(x + r, y + r, r, r, Math.PI, Math.PI * 1.5, 10)];
   }
-  function stepped(x, y, w, h, c = 2 * P) {
-    const s = c / 2;
-    return [[x + c, y], [x + w - c, y], [x + w - c, y + s], [x + w - s, y + s], [x + w - s, y + c], [x + w, y + c], [x + w, y + h - c], [x + w - s, y + h - c], [x + w - s, y + h - s], [x + w - c, y + h - s], [x + w - c, y + h],
-      [x + c, y + h], [x + c, y + h - s], [x + s, y + h - s], [x + s, y + h - c], [x, y + h - c], [x, y + c], [x + s, y + c], [x + s, y + s], [x + c, y + s], [x + c, y]];
-  }
-  const steppedPath = (x, y, w, h, c) => { const p = new Path2D(); stepped(x, y, w, h, c).forEach((q, i) => (i ? p.lineTo(q[0], q[1]) : p.moveTo(q[0], q[1]))); return p; };
+  // A card's or chip's outline: TiroDash's rounded box (glass.js). c: the old corner step, kept as the radius.
+  const steppedPath = (x, y, w, h, c = 2 * P) => R.glass.cardPath(x, y, w, h, Math.min(T.r, Math.max(4, c * 1.25)));
   function catmull(pts, closed) {
     const Q = closed ? [pts[pts.length - 1], ...pts, pts[0], pts[1]] : [pts[0], ...pts, pts[pts.length - 1]], out = [];
     for (let i = 1; i < Q.length - 2; i++) for (let k = 0; k < 10; k++) {
@@ -123,7 +123,6 @@
   view.setAttribute('aria-hidden', 'true');
   Object.assign(view.style, { position: 'fixed', left: '0', top: '0', width: '100vw', height: '100vh', pointerEvents: 'none', visibility: 'hidden', cursor: 'default' });
   const V = view.getContext('2d'), Lc = litC.getContext('2d');
-  const hasFilter = 'filter' in V;
   let W = innerWidth, H = innerHeight, DPR = 1, alloc = false;
   const mount = () => { const st = document.getElementById('stage'); if (st?.parentNode) st.parentNode.insertBefore(view, st); else document.body.appendChild(view); };
   if (document.body) mount(); else document.addEventListener('DOMContentLoaded', mount);
@@ -175,8 +174,7 @@
       for (const c of [V, Lc]) c.restore();
       const sx = C[0] * DPR, sy = C[1] * DPR, sw = C[2] * DPR, sh = C[3] * DPR;
       V.save(); V.setTransform(1, 0, 0, 1, 0, 0);
-      if (hasFilter) { V.globalAlpha = 0.75; V.filter = `blur(${4 * DPR}px)`; V.drawImage(litC, sx, sy, sw, sh, sx, sy, sw, sh); V.filter = 'none'; V.globalAlpha = 1; }
-      else { V.shadowColor = rgba(ACC, 0.75); V.shadowBlur = 8 * DPR; }
+      // The pen's lit layer goes on as it is: no glow round it.
       V.drawImage(litC, sx, sy, sw, sh, sx, sy, sw, sh);
       V.restore();
     });
@@ -235,16 +233,15 @@
     base.save(); base.lineJoin = 'round'; base.lineWidth = 2.5; base.strokeStyle = EDGE; base.stroke(body); base.beginPath(); base.arc(pts[k][0], pts[k][1], ol.hw[k] + 1.2, 0, Math.PI * 2); base.fillStyle = EDGE; base.fill(); base.restore();
     lit.save(); lit.fillStyle = c; lit.fill(body); lit.beginPath(); lit.arc(pts[k][0], pts[k][1], ol.hw[k], 0, Math.PI * 2); lit.arc(pts[0][0], pts[0][1], ol.hw[0], 0, Math.PI * 2); lit.fill(); lit.restore();
   }
-  // Our chrome for cards and chips: stepped corners, dark glass, an accent edge, a glint along the top.
+  // Our chrome for cards and chips: TiroDash's panel, a slate fill and a 1px edge (glass.js chrome).
   function chrome(c, x, y, w, h, o = {}) {
-    const path = steppedPath(x, y, w, h, o.corner ?? 2 * P), edge = o.edge || ACC;
+    const path = steppedPath(x, y, w, h, o.corner ?? 2 * P), edge = o.edge || T.line2;
     c.save();
-    c.fillStyle = o.fill || GLASS; c.shadowColor = 'rgba(0,0,0,0.35)'; c.shadowBlur = 14; c.shadowOffsetY = 4; c.fill(path);
-    c.shadowColor = rgba(edge, 0.7); c.shadowBlur = 8; c.shadowOffsetY = 0; c.strokeStyle = edge; c.lineWidth = 1.5; c.globalAlpha *= 0.9; c.stroke(path);
-    c.globalAlpha *= 0.6; c.shadowBlur = 0; c.strokeStyle = '#ffffff'; c.lineWidth = 1; c.beginPath(); c.moveTo(x + 3 * P, y + 1.5); c.lineTo(x + Math.min(w * 0.45, 90), y + 1.5); c.stroke();
+    c.fillStyle = o.fill || GLASS; c.fill(path);
+    c.strokeStyle = edge; c.lineWidth = 1; c.stroke(path);
     c.restore();
   }
-  // Words typing themselves in; the last couple land white.
+  // Words typing themselves in.
   function typed(c, str, x, y, font, color, u, o = {}) {
     str = String(str ?? '');
     c.save(); c.font = font; c.textBaseline = o.baseline || 'alphabetic'; c.textAlign = 'left';
@@ -254,8 +251,7 @@
     // Still typing in: keep repainting until it's all there (a card stopped after 1.5 s, freezing long text mid-word).
     if (n < str.length) touch(0.1);
     if (o.rim) { c.lineWidth = o.rim; c.strokeStyle = EDGE; c.lineJoin = 'round'; c.strokeText(str.slice(0, n), x0, y); }
-    if (n >= str.length || o.land === false) { c.fillStyle = color; c.fillText(str.slice(0, n), x0, y); }
-    else { const head = str.slice(0, Math.max(0, n - 2)); c.fillStyle = color; c.fillText(head, x0, y); c.fillStyle = '#ffffff'; c.fillText(str.slice(head.length, n), x0 + c.measureText(head).width, y); }
+    c.fillStyle = color; c.fillText(str.slice(0, n), x0, y);
     c.restore();
     return full;
   }
@@ -327,16 +323,14 @@
 
   // ---------------------------------------------------------------- names: pixel tags on the calmest free spot
   // A solid teal tag with a hard drop shadow; it lands in three pixel steps. Names, step numbers and buttons share it.
-  const CHIP = (k = 1) => `700 ${11 * k}px ${MONO}`;
+  const CHIP = (k = 1) => `600 ${12 * k}px ${T.sans}`;
   const pillSize = (s) => [Math.round(textW(s, CHIP()) + 22), 23];
   function chip(b, x, y, w, h, str, age, o = {}) {
     const k = o.k || 1, cx = x + w / 2, cy = y + h / 2 + 0.5, type = (age - 0.08) / (0.12 + String(str).length * 0.025), fill = o.color || ACC;
     const u = clamp(age / 0.2, 0, 1), drop = reduced() ? 0 : Math.round((1 - u) * 3) * 3;
     b.save(); b.translate(0, -drop);
     if (o.down) b.translate(0, 2);
-    b.fillStyle = mixHex(fill, '#000000', 0.62); b.fill(steppedPath(x, y + (o.down ? 1 : 3), w, h, P));
-    b.fillStyle = o.hover ? mixHex(fill, '#ffffff', 0.3) : fill; b.fill(steppedPath(x, y, w, h, P));
-    b.fillStyle = 'rgba(255,255,255,0.55)'; b.fillRect(x + P, y + 1, w - 2 * P, 1.5); b.fillStyle = 'rgba(36, 17, 6, 0.25)'; b.fillRect(x + P, y + h - 2.5, w - 2 * P, 1.5);
+    b.save(); if (o.hover) b.globalAlpha *= 0.9; b.fillStyle = fill; b.fill(R.glass.cardPath(x, y, w, h, 8)); b.restore();
     typed(b, str, cx, cy, CHIP(k), INKDARK, type, { anchor: 'middle', baseline: 'middle', land: false });
     b.restore();
   }
@@ -466,16 +460,11 @@
     async spotlight(m) {
       const [x, y, w, h] = rectOf(m), p = 8, g = (v) => Math.round(v / P) * P, hole = [g(x - p), g(y - p), g(w + 2 * p), g(h + 2 * p)];
       add({ z: 0, part: m.part, screen: true, p: 1, box: () => [0, 0, W, H], draw(b, l, t) {
-        const u = clamp((t - this.born) / 0.5, 0, 1), BAND = 6, e = BAND * P;
-        b.fillStyle = `rgba(3,14,16,${0.62 * u})`;
-        const outer = new Path2D(); outer.rect(0, 0, W, H); outer.rect(hole[0] - e, hole[1] - e, hole[2] + 2 * e, hole[3] + 2 * e); b.fill(outer, 'evenodd');
-        // a dithered falloff round the opening (our pixels) instead of a blur
-        for (let gy = Math.floor((hole[1] - e) / P); gy < (hole[1] + hole[3] + e) / P; gy++) for (let gx = Math.floor((hole[0] - e) / P); gx < (hole[0] + hole[2] + e) / P; gx++) {
-          const cx = gx * P + 2, cy = gy * P + 2, dx = Math.max(hole[0] - cx, 0, cx - hole[0] - hole[2]), dy = Math.max(hole[1] - cy, 0, cy - hole[1] - hole[3]), d = Math.hypot(dx, dy) / P;
-          if (d === 0) continue;
-          if (d < BAND && (d / BAND) * 16 * u < B4[(((gy % 4) + 4) % 4) * 4 + (((gx % 4) + 4) % 4)] + 0.5) continue;
-          b.fillRect(gx * P, gy * P, P, P);
-        }
+        const u = clamp((t - this.born) / 0.5, 0, 1);
+        // Everything else dims; the opening is a rounded box with a thin cyan edge.
+        b.fillStyle = T.rgba('bg', 0.62 * u);
+        const outer = new Path2D(); outer.rect(0, 0, W, H); outer.addPath(R.glass.cardPath(hole[0], hole[1], hole[2], hole[3], T.r)); b.fill(outer, 'evenodd');
+        b.save(); b.globalAlpha *= u; b.strokeStyle = ACC; b.lineWidth = 1; b.stroke(R.glass.cardPath(hole[0], hole[1], hole[2], hole[3], T.r)); b.restore();
       } });
       sfx('focus'); await fly(x + w * 0.85, y + h + 10); await name(m.part, [x, y, w, h], m.label);
     },
@@ -649,10 +638,11 @@
         chrome(b, x, y, this.cw, this.ch, { edge: o.edge ? colorOf(this, this.color) : ACC });
         if (this.p < 1) return;
         if (bar) {
-          b.fillStyle = 'rgba(245, 172, 130, 0.06)'; b.fillRect(x + 2, y + 2, w - 4, bar - 2);
-          b.fillStyle = DEEP; b.fillRect(x + 2, y + bar, w - 4, 1);
+          b.fillStyle = T.raise; b.fillRect(x + 1, y + bar - 1, w - 2, 1);
+          b.fillStyle = T.line; b.fillRect(x + 1, y + bar, w - 2, 1);
           [0, 1].forEach((k) => { b.fillStyle = k ? DEEP : ACC; b.fillRect(x + 12 + k * 12, y + 11, 5, 5); });
-          if (o.title) typed(b, ellipsize(String(o.title).toLowerCase(), w - 206, `500 10px ${MONO}`), x + w / 2, y + 17, `500 10px ${MONO}`, DIM, (t - this.done) / 0.4, { anchor: 'middle' });
+          // Its title as a label: [ MONO CAPS ].
+          if (o.title) typed(b, `[ ${ellipsize(String(o.title).toUpperCase(), w - 226, `600 10px ${MONO}`)} ]`, x + w / 2, y + 17, `600 10px ${MONO}`, T.muted, (t - this.done) / 0.4, { anchor: 'middle' });
           // pin: a pixel pushpin with the full-screen and close buttons, drawn like them; pinned, it sits on a lit tile
           // (the filled-button look), so the state shows by shape as well as colour. The card stays until its ×.
           pinIcon(b, x + w - 70, y + 13, this);
@@ -906,14 +896,13 @@
         const c2 = cv.getContext('2d', { willReadFrequently: true });
         c2.drawImage(img, 0, 0, gw, gh); // the frame has the picture's proportions: all of it, none cut off
         const d = c2.getImageData(0, 0, gw, gh).data;
-        // Into the Sidekick's five LED levels with an ordered dither.
-        for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) { const i = (gy * gw + gx) * 4, lum = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255, v = clamp(lum + (B4[(gy % 4) * 4 + (gx % 4)] / 16 - 0.5) * 0.22, 0, 0.999); cells.push([gx, gy, Math.floor(v * 5)]); }
+        // The picture as it is (no dither), scaled into its frame.
         ready = true;
       }
       const c = await card(m, w, h, function (b, l, t, x, y, age) {
         const u = clamp(age / 1, 0, 1);
-        if (ready) for (const [gx, gy, v] of cells) { if ((B4[(gy % 4) * 4 + (gx % 4)] + 0.5) / 16 > u * 1.05) continue; b.fillStyle = LED[v]; b.fillRect(x + ix + gx * 3, y + 12 + gy * 3, 3, 3); }
-        else { b.fillStyle = 'rgba(90, 46, 20, 0.25)'; b.fillRect(x + ix, y + 12, pw, ph); typed(b, 'no picture found', x + w / 2, y + 12 + ph / 2, SMALL, DIM, 1, { anchor: 'middle' }); }
+        if (ready) { b.save(); b.globalAlpha *= u; b.imageSmoothingQuality = 'high'; b.drawImage(img, x + ix, y + 12, pw, ph); b.restore(); if (u < 1) touch(0.1); }
+        else { b.fillStyle = T.raise; b.fillRect(x + ix, y + 12, pw, ph); typed(b, 'no picture found', x + w / 2, y + 12 + ph / 2, SMALL, DIM, 1, { anchor: 'middle' }); }
         capRows.forEach((r, i) => typed(b, r, x + w / 2, y + capY + i * capLh, CAPF, TEXT, (age - 0.6 - i * 0.15) / 0.5, { anchor: 'middle' }));
         credRows.forEach((r, i) => typed(b, r, x + w / 2, y + credY + i * 14, `400 10px ${MONO}`, DIM, (age - 0.8) / 0.4, { anchor: 'middle' }));
         named.forEach((q, i) => {
@@ -1009,7 +998,9 @@
       await card(m, w, h, function (b, l, t, x, y, age) {
         if (!view3d) { typed(b, '3D isn’t available here', x + w / 2, y + 100, SMALL, DIM, 1, { anchor: 'middle' }); return; }
         const u = clamp(age / 0.8, 0, 1), f = view3d.frame(reduced() ? 0 : t);
-        for (let i = 0; i < f.lv.length; i++) { const v = f.lv[i]; if (!v) continue; const gx = i % f.gw, gy = (i / f.gw) | 0; if ((B4[(gy % 4) * 4 + (gx % 4)] + 0.5) / 16 > u * 1.05) continue; b.fillStyle = LED[v]; b.fillRect(x + 12 + gx * 3, y + 6 + gy * 3, 3, 3); }
+        b.save(); b.globalAlpha *= u;
+        for (let i = 0; i < f.lv.length; i++) { const v = f.lv[i]; if (!v) continue; const gx = i % f.gw, gy = (i / f.gw) | 0; b.fillStyle = LED[v]; b.fillRect(x + 12 + gx * 3, y + 6 + gy * 3, 3, 3); }
+        b.restore(); if (u < 1) touch(0.1);
         // Labels follow their parts as it turns; one that would land on another this frame waits its turn.
         if (u >= 1) { const took = []; for (const lab of f.labels) { const lx = x + 12 + lab.x, ly = y + 6 + lab.y, r = [lx - 2, ly - 14, textW(lab.text, `600 10px ${MONO}`) + 10, 16]; if (took.some((q) => overlap(q, r) > 0)) continue; took.push(r); b.fillStyle = ACC; b.fillRect(lx - 1.5, ly - 1.5, 3, 3); typed(b, lab.text, lx + 6, ly - 4, `600 10px ${MONO}`, TEXT, 1, { rim: 3 }); } }
       }, { title: m.title || m.label || 'model', live: () => !!view3d && !reduced() });
@@ -1243,7 +1234,6 @@
         const u = reduced() ? 1 : ease(clamp(a / 0.5, 0, 1)), full = Math.max(2, (q.value / top) * track), bw = Math.max(2, full * u), col = tone(q.tone);
         if (u < 1) touch(0.1);
         b.fillStyle = col; b.fillRect(x + x0, mid - BH / 2, bw, BH);
-        b.fillStyle = 'rgba(255,255,255,0.45)'; b.fillRect(x + x0, mid - BH / 2, bw, 1.5); b.fillStyle = 'rgba(36, 17, 6, 0.3)'; b.fillRect(x + x0, mid + BH / 2 - 1.5, bw, 1.5);
         if (u >= 1) typed(b, vals[i], x + x0 + full + 8, mid + 4, TD1, TEXT, (a - 0.5) / 0.25);
       });
     }, { title: m.title || 'bars' });
@@ -1789,7 +1779,7 @@
     let hover = false, down = 0, br = null;
     const c = await card(m, w, h, function (b, l, t, x, y, age) {
       // a ticket: notches on both sides, a dashed tear line, a big number
-      b.fillStyle = 'rgba(15, 8, 4, 1)'; for (const sx of [x - 1, x + w - 9]) b.fillRect(sx, y + 36 + off, 10, 10);
+      b.fillStyle = T.bg; for (const sx of [x - 1, x + w - 9]) b.fillRect(sx, y + 36 + off, 10, 10);
       b.fillStyle = DEEP; for (let dx = x + 14; dx < x + w - 14; dx += 8) b.fillRect(dx, y + 41 + off, 4, 1);
       titles.forEach((r, i) => typed(b, r, x + 18, y + 26 + i * 22, TF, TEXT, (age - i * 0.2) / 0.4));
       if (m.n != null) typed(b, String(m.n).padStart(2, '0'), x + w - 18, y + 26, `800 18px ${DOTO}`, MID, 1, { anchor: 'end' });
@@ -2071,8 +2061,7 @@
     if (cw < 4) return;
     chrome(b, x, y, cw, ch);
     if (!this.ready) return;
-    b.fillStyle = 'rgba(245, 172, 130, 0.06)'; b.fillRect(x + 2, y + 2, w - 4, 24);
-    b.fillStyle = DEEP; b.fillRect(x + 2, y + 26, w - 4, 1);
+    b.fillStyle = T.line; b.fillRect(x + 1, y + 26, w - 2, 1);
     [0, 1].forEach((k) => { b.fillStyle = k ? DEEP : ACC; b.fillRect(x + 12 + k * 12, y + 11, 5, 5); });
     typed(b, 'reminders', x + w / 2, y + 17, `500 10px ${MONO}`, DIM, (t - this.opened) / 0.4, { anchor: 'middle' });
     pinIcon(b, x + w - 44, y + 13, this);
@@ -2186,7 +2175,6 @@
     Object.assign(m, { alpha: 1, hover: false, hoverSave: false, hoverClose: false, hoverFull: false, hoverGrip: false, hoverPin: false });
     try { m.draw(B, L, now()); } finally { Object.assign(m, keep); }
     B.setTransform(1, 0, 0, 1, 0, 0);
-    if (hasFilter) { B.globalAlpha = 0.75; B.filter = `blur(${4 * scale}px)`; B.drawImage(lit, 0, 0); B.filter = 'none'; B.globalAlpha = 1; }
     B.drawImage(lit, 0, 0);
     return base;
   }

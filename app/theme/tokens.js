@@ -13,10 +13,10 @@
     sans: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif',
     rgba: (name, a) => `rgba(${rgb[name].join(',')},${a})`,
   };
-  // The Tiro figure's five levels, dark to bright: the background, the accent over it at 30% and 65% (what
-  // rgba(34, 211, 238, .3) looks like on --bg), the accent, and the text colour for its brightest dots.
+  // The Tiro figure's five levels, dark to bright: the background, then the accent over it at 25%, 50% and 80% (what
+  // rgba(34, 211, 238, .5) looks like on --bg), then the accent itself. Cyan only: no white.
   const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
-  theme.sprite = [rgb.bg, mix(rgb.bg, rgb.acc, 0.3), mix(rgb.bg, rgb.acc, 0.65), rgb.acc, rgb.text];
+  theme.sprite = [rgb.bg, mix(rgb.bg, rgb.acc, 0.25), mix(rgb.bg, rgb.acc, 0.5), mix(rgb.bg, rgb.acc, 0.8), rgb.acc];
   if (typeof window !== 'undefined') window.TiroTheme = theme;
   if (typeof module !== 'undefined') module.exports = theme;
 })();

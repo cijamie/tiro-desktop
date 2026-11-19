@@ -1,6 +1,6 @@
 // The agents' home: a small panel in the top-right corner of the overlay with a row for each background agent
 // (its mini, what it's doing, how long, Stop), Allow / Don't allow when one waits for a yes, and, when one finishes,
-// a "made" shelf under it with what it made as tiles that open with one click. Same frame, glass and type as the
+// a "made" shelf under it with what it made as tiles that open with one click. Same panel and type as the
 // research card (agent-panel.js) and the ask field (ask-bar.js). Minis are drawn by minis.js.
 // The overlay is click-through, so the host asks Tiro.homeHit(x, y) (and on Linux Tiro.homeRects()).
 // API: Tiro.agentHome.event(e, { from }) .hatch([x, y]) .hatchOff() .send (set by host.js)
@@ -22,28 +22,21 @@
 
   const css = `
 .ah-col { position: fixed; left: 0; top: 0; z-index: 5; width: 300px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; will-change: transform; }
-.ah, .ahs { --ink: #fdf1ea; --ink-2: #d5c2b7; --ink-3: #b59c8d; --accent: #f5ac82; --line-hi: #764d35; --line-hot: #b77a57; --note: #e9a196;
-  --s: 2px; --ease: cubic-bezier(.2, .8, .2, 1);
-  --notch: polygon(
-    calc(var(--s) * 2) 0, calc(100% - var(--s) * 2) 0, calc(100% - var(--s) * 2) var(--s), calc(100% - var(--s)) var(--s),
-    calc(100% - var(--s)) calc(var(--s) * 2), 100% calc(var(--s) * 2), 100% calc(100% - var(--s) * 2),
-    calc(100% - var(--s)) calc(100% - var(--s) * 2), calc(100% - var(--s)) calc(100% - var(--s)),
-    calc(100% - var(--s) * 2) calc(100% - var(--s)), calc(100% - var(--s) * 2) 100%, calc(var(--s) * 2) 100%,
-    calc(var(--s) * 2) calc(100% - var(--s)), var(--s) calc(100% - var(--s)), var(--s) calc(100% - var(--s) * 2),
-    0 calc(100% - var(--s) * 2), 0 calc(var(--s) * 2), var(--s) calc(var(--s) * 2), var(--s) var(--s), calc(var(--s) * 2) var(--s));
-  pointer-events: auto; cursor: default; box-sizing: border-box; padding: 2px; background: var(--line-hot); color: #130b06; clip-path: var(--notch);
-  font: 400 12px/1.45 "Martian Mono", ui-monospace, Menlo, monospace;
-  filter: drop-shadow(0 0 10px rgba(245, 172, 130, .18)) drop-shadow(0 8px 22px rgba(0, 0, 0, .45)); }
-.ah-in, .ahs-in { background: rgba(19, 11, 6, .97); color: var(--ink); clip-path: var(--notch); }
+.ah, .ahs { --ink: var(--text); --ink-2: var(--dim); --ink-3: var(--muted); --accent: var(--acc); --line-hi: var(--line2); --line-hot: var(--line2); --note: var(--dim);
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  pointer-events: auto; cursor: default; box-sizing: border-box; border: 1px solid var(--line-hot); border-radius: var(--r); background: var(--panel); color: var(--ink); overflow: hidden;
+  font: 400 13px/1.45 var(--sans); }
+.ah-in, .ahs-in { background: transparent; color: var(--ink); }
 /* Panels unfold on the way in and only dissolve on the way out: the entrance is a one-way keyframe, the exit
    is just the opacity transition (260 ms). */
 .ah { transform-origin: top right; opacity: 0; transition: opacity .26s ease-out; }
 .ah.on { opacity: 1; transition-duration: .22s; animation: ah-unfold .22s var(--ease); }
 @keyframes ah-unfold { from { transform: scale(.9); } }
 .ah.gone { display: none; }
-.ah-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px 8px 14px; border-bottom: 1px solid #2e1e14; }
-.ah-dot { width: 6px; height: 6px; flex: none; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-.ah-count { flex: 1; min-height: 1.3em; font-size: 11px; line-height: 1.3; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; }
+.ah-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px 8px 14px; border-bottom: 1px solid var(--line); }
+.ah-dot { width: 6px; height: 6px; flex: none; background: var(--accent); border-radius: 50%; }
+.ah-count { flex: 1; min-height: 1.3em; font: 600 11px/1.3 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; }
+.ah-count:not(:empty)::before { content: "[ "; } .ah-count:not(:empty)::after { content: " ]"; }
 .ah-rows { list-style: none; margin: 0; padding: 0; }
 /* Rows open from nothing (180 ms). Leaving, a row dissolves first (.fade, 260 ms), then the gap closes. */
 .ah-row { display: grid; grid-template-rows: 1fr; opacity: 1; transition: grid-template-rows .18s var(--ease), opacity .18s var(--ease); }
@@ -51,7 +44,7 @@
 .ah-row.fade { opacity: 0; transition: opacity .26s ease-out; }
 .ah-row.fade.shut { transition: grid-template-rows .18s var(--ease); }
 .ah-row-in { min-height: 0; overflow: hidden; }
-.ah-row + .ah-row .ah-row-in { border-top: 1px solid #251811; }
+.ah-row + .ah-row .ah-row-in { border-top: 1px solid var(--line); }
 .ah-line { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; column-gap: 10px; padding: 8px 6px 8px 12px; }
 /* desktop.html pins every canvas (position: fixed, grab cursor): keep the minis in their row's flow. */
 .ah-mini, .ahs-mini { position: static; pointer-events: none; will-change: auto; }
@@ -61,18 +54,18 @@
 .ah-status { font-size: 11px; line-height: 1.35; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ah-row[data-state="failed"] .ah-status { color: var(--note); }
 .ah-x, .ahs-x { all: unset; box-sizing: border-box; width: 26px; height: 26px; display: grid; place-items: center; color: var(--ink-3); cursor: pointer; flex: none; transition: color .12s var(--ease), background-color .12s var(--ease); }
-.ah-x:hover, .ahs-x:hover { color: var(--ink); background: #28180f; }
-.ah-x:active, .ahs-x:active { color: var(--ink); background: #2e1e14; }
-.ah-x:focus-visible, .ahs-x:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ah-x:hover, .ahs-x:hover { color: var(--ink); background: var(--raise); }
+.ah-x:active, .ahs-x:active { color: var(--ink); background: var(--line); }
+.ah-x:focus-visible, .ahs-x:focus-visible { outline: 1px solid var(--acc); outline-offset: -2px; }
 .ah-x:disabled { color: var(--line-hi); background: transparent; cursor: default; }
 /* Stop asks first, in the same spot (like the panel's X buttons): pressed, it turns into Confirm for 4 s. */
 .ah-x { min-width: 26px; width: auto; }
 .ah-x > .yes { display: none; }
-.ah-x[aria-pressed="true"] { padding: 0 8px; background: #ffb4a8; color: #241106; font: 700 11px/1.25 "Martian Mono", ui-monospace, Menlo, monospace; animation: ah-arm 600ms steps(2, end) 2; }
-.ah-x[aria-pressed="true"]:hover { background: #ffcbc2; color: #241106; }
+.ah-x[aria-pressed="true"] { padding: 0 8px; background: var(--bad); color: var(--acc-ink); font: 700 11px/1.25 var(--mono); animation: ah-arm 600ms steps(2, end) 2; }
+.ah-x[aria-pressed="true"]:hover { background: var(--bad); color: var(--acc-ink); }
 .ah-x[aria-pressed="true"] > .no { display: none; }
 .ah-x[aria-pressed="true"] > .yes { display: inline; }
-@keyframes ah-arm { 50% { background: #ff8a78; } }
+@keyframes ah-arm { 50% { background: var(--bad); } }
 /* Waiting for a yes: the question and two buttons, under the row's text. */
 /* The question opens like a row (height, then the words fade in) and closes the other way round. */
 .ah-ask { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden;
@@ -84,16 +77,16 @@
 .ah-q { margin: 0 0 8px; font-size: 11.5px; line-height: 1.45; color: var(--ink-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .ah-btns { display: flex; gap: 8px; }
 .ah-chip, .ahs-chip { all: unset; box-sizing: border-box; height: 26px; padding: 0 11px; display: inline-grid; place-items: center; cursor: pointer;
-  font: 700 11px/1.25 "Martian Mono", ui-monospace, Menlo, monospace; white-space: nowrap;
-  --c: 4px; clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
-  background: #22150d; color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); transition: background-color .12s var(--ease), color .12s var(--ease); }
-.ah-chip:hover, .ahs-chip:hover { background: #372115; color: var(--ink); }
-.ah-chip:active, .ahs-chip:active { background: #42291a; color: var(--ink); }
-.ah-chip.yes { background: var(--accent); color: #241106; box-shadow: none; }
-.ah-chip.yes:hover { background: #f8c8ad; color: #241106; }
-.ah-chip.yes:active { background: #d69169; color: #241106; }
-.ah-chip:focus-visible, .ahs-chip:focus-visible { outline: 2px solid #fdf0e8; outline-offset: 2px; clip-path: none; }
-.ah-chip:disabled, .ahs-chip:disabled { background: #22150d; color: var(--ink-3); box-shadow: inset 0 0 0 1.5px var(--line-hi); cursor: default; }
+  font: 700 11px/1.25 var(--mono); white-space: nowrap;
+  border-radius: 8px; font-family: var(--sans); font-weight: 600; font-size: 12px;
+  background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--line2); transition: background-color .12s var(--ease), color .12s var(--ease), box-shadow .12s var(--ease); }
+.ah-chip:hover, .ahs-chip:hover { box-shadow: inset 0 0 0 1px var(--acc); color: var(--ink); }
+.ah-chip:active, .ahs-chip:active { background: var(--line); color: var(--ink); }
+.ah-chip.yes { background: var(--accent); color: var(--acc-ink); box-shadow: none; }
+.ah-chip.yes:hover { background: var(--acc); color: var(--acc-ink); }
+.ah-chip.yes:active { background: var(--acc); color: var(--acc-ink); }
+.ah-chip:focus-visible, .ahs-chip:focus-visible { outline: 1px solid var(--acc); outline-offset: 2px; }
+.ah-chip:disabled, .ahs-chip:disabled { background: var(--raise); color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line2); cursor: default; }
 /* The made shelf: what one agent made, until it's closed. */
 .ahs { opacity: 0; transition: opacity .26s ease-out; }
 .ahs.on { opacity: 1; transition-duration: .22s; animation: ahs-in .22s var(--ease); }
@@ -107,14 +100,14 @@
 .ahs-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 10px 8px 6px; }
 .ahs-tile { all: unset; box-sizing: border-box; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 2px 6px; cursor: pointer;
   background: transparent; color: var(--ink-2); transition: background-color .12s var(--ease), color .12s var(--ease); }
-.ahs-tile:hover { background: #28180f; color: var(--ink); }
-.ahs-tile:active { background: #2e1e14; color: var(--ink); }
-.ahs-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ahs-tile:hover { background: var(--raise); color: var(--ink); }
+.ahs-tile:active { background: var(--line); color: var(--ink); }
+.ahs-tile:focus-visible { outline: 1px solid var(--acc); outline-offset: -2px; }
 .ahs-tile:disabled { color: var(--ink-3); cursor: default; }
 .ahs-tile svg { width: 36px; height: 36px; display: block; }
 /* One line, never broken inside a word: a long name is shortened in the middle, keeping its extension (fitName). */
 .ahs-name { max-width: 100%; font-size: 11px; line-height: 1.3; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ahs-more { width: 36px; height: 36px; display: grid; place-items: center; font-size: 12px; line-height: 1.3; font-weight: 700; color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--line-hi); }
+.ahs-more { width: 36px; height: 36px; display: grid; place-items: center; font-size: 12px; line-height: 1.3; font-weight: 700; color: var(--accent); box-shadow: inset 0 0 0 1px var(--line2); }
 .ahs-tile.pop { animation: ahs-pop .22s var(--ease) both; }
 @keyframes ahs-pop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
 .ahs-foot { padding: 0 10px 12px; }
@@ -188,7 +181,7 @@
   };
   const fitNames = (root) => { for (const n of root.querySelectorAll('.ahs-name[data-name]')) fitName(n); };
   const refit = () => { for (const s of shelves) fitNames(s.el); };
-  document.fonts?.load('400 11px "Martian Mono"').then(refit, () => {});
+  document.fonts?.ready.then(refit, () => {});
   document.fonts?.addEventListener?.('loadingdone', refit);
   const statusOf = (a) => (a.state === 'waiting' ? 'Waiting for your yes' : a.state === 'failed' ? `Couldn't finish: ${a.reason ?? 'something went wrong'}` : a.step || 'Starting');
   function makeRow(a) {

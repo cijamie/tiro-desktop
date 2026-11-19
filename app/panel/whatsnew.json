@@ -1,6 +1,15 @@
 {
   "updates": [
     {
+      "version": null,
+      "date": "2026-11-20",
+      "items": [
+        { "kind": "improved", "title": "A new look", "text": "Tiro now looks like the Tiro web app: dark slate, one cyan accent, clean panels." },
+        { "kind": "improved", "title": "Cleaner bubbles and cards", "text": "No more glow, glass or dither. Text is sharper and easier to read." },
+        { "kind": "improved", "title": "Green mic waveform", "text": "While I listen, four green bars show your voice." }
+      ]
+    },
+    {
       "version": "0.2.0",
       "date": "2026-11-17",
       "items": [

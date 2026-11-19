@@ -273,7 +273,7 @@
     const me = {
       pose: null, look, form,
       kit: Tiro.ditherKit({
-        id: 'panel', label: 'Panel', matrix: true, pixel: 1.3, glow: 0, speed: 80, pal: LED,
+        id: 'panel', label: 'Panel', matrix: true, pixel: 1.3, glow: 0, speed: 80, pattern: 'flat', pal: LED,
         // busy: no acts of its own; pose: whatever's going on, except while it's acting something out.
         plugin: (kit) => { K = kit; return { busy: () => true, pose: () => (clock < actUntil ? null : POSES[me.pose]?.(clock) ?? null) }; },
       }).create(env),
