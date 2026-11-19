@@ -164,7 +164,8 @@
     };
 
     // Presence: in auto mode the sidekick hides when idle and comes back for anything it has to do.
-    const ORDER = ['materialize', 'crt', 'drop'];
+    // (Roamies' CRT switch-on glowed; Tiro has no glow, so it's left out.)
+    const ORDER = ['materialize', 'drop'];
     const forcedVariant = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('enter') : null;
     // ptr: the real cursor whenever it's on this screen (even when it hasn't moved for a while), else null.
     const presence = { auto: false, idle: 1.5, summonIdle: 4.5, lastActive: 0, summoned: false, working: false, cursor: null, ptr: null, n: 0 };
@@ -390,12 +391,14 @@
       k.appear(entrance(), x, y);
     };
     const MAX_COLS = 38, MAX_LINES = 7, THINK_COLS = 28, THINK_LINES = 1, METER = 7;
-    // Bubble text: Martian Mono (0.7 em per letter), sized to the bubble's line grid.
-    const fontPx = (t) => Math.round(CH * t * 0.64 * 2) / 2;
-    const colW = (t) => fontPx(t) * 0.7 + 0.35;
-    const TEXT_INK = '#dcfff6', TEXT_ACCENT = '#78ffe2';
-    const T = () => clamp(k.P * 0.42, 1.4, 2.4);
     const G = R.glass;
+    // Bubble text: TiroDash's monospace on the bubble's line grid, one column per letter. The column is the font's
+    // own advance (Consolas on Windows, about 0.55 em), measured once.
+    const ADV = (() => { const c = document.createElement('canvas').getContext('2d'); c.font = `500 100px ${G.MONO}`; return c.measureText('0').width / 100 || 0.6; })();
+    const fontPx = (t) => Math.round(CH * t * 0.64 * 2) / 2;
+    const colW = (t) => fontPx(t) * ADV + 0.35;
+    const TEXT_INK = G.TEXT, TEXT_ACCENT = G.ACC;
+    const T = () => clamp(k.P * 0.42, 1.4, 2.4);
     // Padding inside a bubble. The thinking tag is slim, one line, with its three dots before the words.
     const DOTS_W = 24;
     const padX = (bb) => (bb.kind === 'thought' ? 13 : k.P * 3), padY = (bb) => (bb.kind === 'thought' ? 5 : k.P * 3);
@@ -596,7 +599,7 @@
       }
     };
 
-    // ---- bubbles: the card look, with a stepped tail to the body (or, thinking, two little steps up from it) ----
+    // ---- bubbles: the card look, with a small tail to the body (or, thinking, two little dots up from it) ----
     // The frame as drawn this instant: it pops in and out around the point its tail comes from.
     const bubbleBox = (bb) => {
       const pop = clamp(bb.pop.x, 0, 1.08), beside = bb.side === 'left' || bb.side === 'right';
@@ -619,7 +622,7 @@
         [[0.32, 8], [0.7, 5]].forEach(([u, sz], i) => {
           if (bb.trail < i * 0.3) return;
           const s = sz * bb.cloud.x, cx = base[0] + (tip[0] - base[0]) * u, cy = base[1] + (tip[1] - base[1]) * u;
-          G.chrome(ctx, cx - s / 2, cy - s / 2, s, s, { corner: i ? 1 : 2, glint: false });
+          G.chrome(ctx, cx - s / 2, cy - s / 2, s, s, { corner: s / 2 });
         });
       }
       const tail = speechTail > 0.05 ? { side, at: across ? tip[0] : tip[1], to: tip, w: 14 * speechTail } : null;
@@ -628,8 +631,8 @@
       const streaming = bb.kind !== 'thought' && (bb.shown < bb.text.length || (bb.input?.focused && !bb.input.processing && !bb.closing));
       if (streaming && f.w > 40) {
         const run = f.w - 32, u = pen.reduced ? 0.4 : (now * 0.8) % 1;
-        ctx.save(); ctx.shadowColor = G.rgba(G.ACC, 0.8); ctx.shadowBlur = 6; ctx.fillStyle = G.HOT;
-        ctx.fillRect(f.x + 8 + run * u, f.y - 0.25, 16, 1.5); ctx.restore();
+        ctx.save(); ctx.fillStyle = G.ACC;
+        ctx.fillRect(f.x + 8 + run * u, f.y - 0.5, 16, 1); ctx.restore();
       }
       // Thinking: three small squares, one lit at a time; before the words when there are any.
       if (bb.kind === 'thought' && bb.cloud.x > 0.3) {
@@ -637,23 +640,23 @@
         for (let i = 0; i < 3; i++) {
           const on = i === lit;
           ctx.save();
-          if (on) { ctx.shadowColor = G.rgba(G.ACC, 0.8); ctx.shadowBlur = 6; } else ctx.globalAlpha *= 0.55;
+          if (!on) ctx.globalAlpha *= 0.55;
           ctx.fillStyle = on ? G.ACC : G.MID; ctx.fillRect(Math.round(dx + i * 10), Math.round(cy - 2 - (on ? 1.5 : 0)), 4, 4);
           ctx.restore();
         }
       }
-      // Listening: the voice level as thin glowing bars under the transcript, a sweep while it's finished off.
+      // Listening: the mic waveform, four bars in phosphor green (tokens.js wave), from the voice level; a slow
+      // ripple while it's finished off. It sits at the left of the meter row, under the transcript.
       if (bb.input?.listen) {
-        const inp = bb.input, mh = METER * P, x0 = f.x + padX(bb), x1 = f.x + f.w - padX(bb), bot = f.y + f.h - padY(bb);
-        const n = Math.max(1, Math.floor((x1 - x0) / 5));
-        while (inp.levels.length < n) inp.levels.unshift(0);
-        if (inp.levels.length > n) inp.levels.splice(0, inp.levels.length - n);
-        ctx.save(); ctx.shadowColor = G.rgba(G.ACC, 0.6); ctx.shadowBlur = 4; ctx.fillStyle = G.ACC;
-        for (let i = 0; i < n; i++) {
-          let v = inp.levels[i];
-          if (inp.processing) v = 0.15 + 0.7 * Math.max(0, Math.sin(now * 9 - i * 0.55)) ** 3;
-          const bh = Math.max(2, v * mh);
-          ctx.fillRect(x0 + i * 5, bot - bh, 2, bh);
+        const inp = bb.input, mh = METER * P, x0 = f.x + padX(bb), bot = f.y + f.h - padY(bb);
+        while (inp.levels.length < 4) inp.levels.unshift(0);
+        const lv = inp.levels.slice(-4);
+        ctx.save(); ctx.fillStyle = G.WAVE;
+        for (let i = 0; i < 4; i++) {
+          let v = Math.max(lv[i], lv[3] * (0.55 + 0.15 * i));
+          if (inp.processing) v = 0.25 + 0.5 * Math.max(0, Math.sin(now * 6 - i * 0.8)) ** 2;
+          const bh = Math.max(2, (0.25 + 0.75 * clamp(v, 0, 1)) * mh * (0.55 + 0.15 * i));
+          ctx.fillRect(Math.round(x0 + i * 5), Math.round(bot - bh), 3, Math.round(bh));
         }
         ctx.restore();
       }
@@ -677,7 +680,7 @@
         const bx = f.x + f.w - 7, top = f.y + padY(bb), len = Math.max(4, f.h - padY(bb) * 2);
         const total = bb.lines.length, frac = bb.rows / total, pos = bb.scroll.x / Math.max(1, total - bb.rows);
         const tl = Math.max(6, len * frac), t0 = top + (len - tl) * clamp(pos, 0, 1);
-        ctx.fillStyle = G.rgba(G.ACC, 0.15); ctx.fillRect(bx, top, 2, len);
+        ctx.fillStyle = G.LINE; ctx.fillRect(bx, top, 2, len);
         ctx.fillStyle = G.ACC; ctx.fillRect(bx, t0, 2, tl);
         if (bb.ended && bb.scroll.x < total - bb.rows - 0.05) {
           const cx = f.x + f.w - 20, cy = f.y + f.h - 7 + (Math.sin(now * 6) > 0 ? 1 : 0);
@@ -715,13 +718,13 @@
         let f = fonts.get(st);
         if (!f) {
           const w = st & (md?.BOLD ?? 0) ? 700 : base, it = st & (md?.ITAL ?? 0) ? 'italic ' : '';
-          f = `${it}${w} ${fpx}px "Martian Mono", Menlo, ui-monospace, monospace`; fonts.set(st, f);
+          f = `${it}${w} ${fpx}px ${G.MONO}`; fonts.set(st, f);
         }
         return f;
       };
       let curFont = '';
       tctx.textBaseline = 'middle'; tctx.textAlign = 'left';
-      const ink = dim ? css(PAL[L - 2], 0.9) : TEXT_INK, accent = dim ? ink : TEXT_ACCENT;
+      const ink = dim ? G.DIM : TEXT_INK, accent = dim ? ink : TEXT_ACCENT;
       for (let li = first; li <= last; li++) {
         const line = lines[li], cy = (li - s0 + 0.5) * lh;
         // Lines scrolling past the top or bottom fade out instead of being cut in half.
@@ -750,13 +753,13 @@
           }
           const em = emojiAt(line.s, j);
           const ch = em ? em.cluster : line.s[j];
-          // Each new letter lands white, then settles to the text colour (code and links in the accent). It lands
-          // in place: a little hop per letter made the line being read shake while it streamed in.
+          // Each new letter lands in the text colour (code and links in the accent), in place: a little hop per letter
+          // made the line being read shake while it streamed in.
           const st = ph ? 0 : bb.sty?.[idx] ?? 0, f = fontFor(st);
           if (f !== curFont) { tctx.font = f; curFont = f; }
           const age = ph ? 9 : now - (bb.at[idx] ?? 0), x = j * cw + (em ? cw * 0.15 : 0), y = cy;
           const marked = md && st & (md.CODE | md.LINK);
-          tctx.fillStyle = age < 0.12 ? '#ffffff' : marked ? accent : ink;
+          tctx.fillStyle = marked ? accent : ink;
           tctx.fillText(ch, x, y);
           if (md && st & md.LINK) tctx.fillRect(x, cy + lh * 0.36, cw, Math.max(1, t * 0.4));
           if (em) j += em.n - 1;
@@ -819,7 +822,7 @@
         }
         // Its progress along the bottom edge when known, else a light running along it.
         const run = g.w - 32;
-        ctx.save(); ctx.shadowColor = G.rgba(G.ACC, 0.8); ctx.shadowBlur = 6; ctx.fillStyle = G.ACC;
+        ctx.save(); ctx.fillStyle = G.ACC;
         if (st.p != null) ctx.fillRect(g.x + 16, g.y + g.h - 1.5, run * clamp(st.p, 0, 1), 1.5);
         else ctx.fillRect(g.x + 16 + (run - 14) * (pen.reduced ? 0.3 : (now * 0.9) % 1), g.y + g.h - 1.5, 14, 1.5);
         ctx.restore();

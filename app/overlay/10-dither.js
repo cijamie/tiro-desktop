@@ -1,4 +1,5 @@
-// Dither blobs: a shaded metaball pushed through an ordered-dither threshold into a small fixed palette.
+// Pixel blobs: a shaded metaball pushed through a threshold into a small fixed palette. Tiro uses the 'flat'
+// pattern (one threshold: clean bands, no dither); the ordered-dither patterns are kept for nothing else.
 // Tiro.ditherKit(options) returns a tiro definition, so each variant only changes its look and extras.
 (() => {
   const bayer = (n) => {
@@ -12,6 +13,7 @@
   };
   const fixed = (n, rows) => ({ n, t: Float32Array.from(rows.flat(), (v) => (v + 0.5) / (n * n)) });
   const PATTERNS = {
+    flat: fixed(1, [[0]]),
     bayer4: bayer(4),
     bayer8: bayer(8),
     dots: fixed(4, [[12, 5, 6, 13], [4, 0, 1, 7], [11, 3, 2, 8], [15, 10, 9, 14]]),
@@ -47,13 +49,7 @@
       // Size: 'default', 'small' (half the body) or 'cursor' (a pixel arrow pointer). Text keeps its size either way.
       let form = (typeof location !== 'undefined' && new URLSearchParams(location.search).get('form')) || 'default', lastEnv = null;
       let userForm = form;
-      // Look: 'classic' (the goo blob, and the arrow at cursor size), 'jarvis' (overlay/jarvis.js: a globe of
-      // points with a lit heart, and a HUD reticle at cursor size) or a character from overlay/people.js
-      // ('anime', 'sarah', 'adrian', 'rita'). Moves, sizes and everything else are shared.
-      const drawn = (l) => (l === 'jarvis' ? Tiro.jarvis : Tiro.people?.[l]);
-      const pickLook = (l) => (drawn(l) ? l : 'classic');
-      let look = pickLook(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('look') : null);
-      const jst = { spin: 0, dt: 0.016 };
+      // One look since the split from Roamies: the blob, and the arrow at cursor size.
       // Each hand springs to its pose in the body's own space (o: its offset from the body), so it moves with the body
       // however fast that goes, and only eases between poses. x, y: where that puts it now.
       const hands = [-1, 1].map((s) => ({ s, x: m.x, y: m.y, o: { x: 0, y: 0, vx: 0, vy: 0 } }));
@@ -99,15 +95,6 @@
         }
       };
       const put = (x, y, lvl = 0) => setPx(x, y, PAL[clamp(lvl, 0, L)]);
-      // JARVIS draws points that overlap; the brightest one in each cell wins, then they're written once.
-      const jbuf = new Map();
-      const jput = (x, y, l) => {
-        const gx = Math.round(x), gy = Math.round(y);
-        if (gx < 0 || gy < 0 || gx >= 8192) return;
-        const key = gy * 8192 + gx;
-        if ((jbuf.get(key) ?? -1) < l) jbuf.set(key, l);
-      };
-      const jflush = () => { for (const [key, l] of jbuf) put(key % 8192, Math.floor(key / 8192), l); jbuf.clear(); };
       const line = (x0, y0, x1, y1, lvl) => {
         const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / P));
         for (let i = 0; i <= n; i++) put(Math.round((x0 + ((x1 - x0) * i) / n) / P), Math.round((y0 + ((y1 - y0) * i) / n) / P), lvl);
@@ -221,7 +208,7 @@
         rows.forEach((r, j) => { for (let i = 0; i < r.length; i++) if (r[i] === '#') for (let a = 0; a < sc; a++) for (let b = 0; b < sc; b++) put(x0 + 2 + i * sc + b, y0 + 2 + j * sc + a, ink); });
       };
       const drawHands = (bx, by) => {
-        if (arms < 0.12 || form === 'cursor' || look === 'jarvis') return;
+        if (arms < 0.12 || form === 'cursor') return;
         // Floating mitts, no arms: they pop out of the body edge and stay readable over it.
         const hr = Math.max(2, Math.round(((R * 0.25) / P) * Math.min(1, arms * 1.25)));
         for (const h of hands) {
@@ -476,40 +463,6 @@
         if (toCursor) sparks(true, Math.round(rand(14, 24)), R * rand(1.6, 2.4));
       });
 
-      // A drawn look: JARVIS's globe (or reticle at cursor size), or a character, with what it's doing passed in
-      // for its motion and face.
-      const drawLook = (bx, by, env) => {
-        const J = drawn(look);
-        if (!J) return;
-        const A = act?.name;
-        Object.assign(jst, {
-          t, mode: pose?.mode ?? null, heard: pose?.heard, voice: window.Tiro.voiceOut?.playing() ? window.Tiro.voiceOut.level() : null, act: A ?? null, actA: act?.a ?? 0,
-          open: face.open, look: [face.lookX, face.lookY], speed: m.speed, vx: m.vx, sq: sq.x,
-          wide: face.wide, dizzy: face.dizzy, happy: face.happy, sleepy: Math.max(env.sleepy ?? 0, face.sleepy ?? 0),
-          mouth: pose?.mouth ?? (act && { wave: null, hype: 'shout', remind: 'o', upset: 'frown', motivate: 'grin' }[A]),
-          brow: pose ? pose.brow : A === 'upset' ? 'angry' : A === 'motivate' ? 'determined' : A === 'remind' ? 'raised' : null,
-        });
-        // The globe's points overlap (the brightest wins); a character is drawn in layers (the last one wins).
-        if (look !== 'jarvis') {
-          const k = { put, L, th };
-          if (form === 'cursor') J.cursor(k, Math.round(bx / P), Math.round(by / P), Math.round(bx / P) - AX, Math.round(by / P) - AY, jst);
-          else J.body(k, bx / P, by / P, R / P, jst);
-          return;
-        }
-        const k = { put: jput, L, th };
-        if (form === 'cursor') J.cursor(k, Math.round(bx / P), Math.round(by / P), Math.round(bx / P) - AX, Math.round(by / P) - AY, jst);
-        else {
-          // A faint projector glow on the floor under the hologram.
-          const fy = (by + R * 1.3) / P, fw = (R * 0.75) / P;
-          for (let y = -1; y <= 1; y++) for (let x = -Math.ceil(fw); x <= Math.ceil(fw); x++) {
-            const u = 1 - Math.hypot(x / fw, y / 1.4);
-            if (u > 0 && u * 0.9 > th(Math.round(bx / P) + x, Math.round(fy) + y)) jput(bx / P + x, fy + y, u > 0.5 ? 2 : 1);
-          }
-          J.body(k, bx / P, by / P, R / P, jst);
-        }
-        jflush();
-      };
-
       // Following the cursor: how far the body is from its grid cell (dx, dy in CSS px) and that cell, or null.
       // The cell comes from where it is, not its little gestures (ox, oy: a talking bounce): those moved the
       // cell, and with it the speech bubble and its text, up and down with every bounce.
@@ -540,7 +493,7 @@
         get morphing() { return !!mo; },
         blink: (mid) => blink(mid),
         get presence() { return pres.state; }, get presU() { return pres.u; }, get form() { return form; },
-        get look() { return look; },
+        get look() { return 'classic'; },
         // From the cursor form's arrow tip to the body point (the pen draws with the tip), and the size the user picked.
         get tip() { return [AX * P, AY * P]; },
         get userForm() { return userForm; },
@@ -588,8 +541,8 @@
         setForm(f) { userForm = ['small', 'cursor'].includes(f) ? f : 'default'; if (!plug?.ghost?.()) swapForm(userForm); },
         ghost: () => !!plug?.ghost?.(),
         morph,
-        get look() { return look; },
-        setLook(l) { look = pickLook(l); jst.spin = 0; jst.tail = null; },
+        get look() { return 'classic'; },
+        setLook() {},
         resize(env) {
           lastEnv = env;
           const S = Tiro.unit(env);
@@ -606,7 +559,7 @@
         tap() { S('pip'); },
         bonk() { sq.kick(16); S('bonk'); if (!forced) pending = 'upset'; for (let i = 0; i < 6; i++) drips.push({ x: m.x, y: m.y, vx: rand(-260, 260), vy: rand(-300, 60), r: R * rand(0.12, 0.22), rMax: 0, hold: 0, life: 1 }); },
         update(dt, env) {
-          t += dt; jst.dt = dt;
+          t += dt;
           EW = env.w; EH = env.h;
           if (pres.state === 'hidden') { blinkCut(); plug?.update?.(dt, env); return; }
           const performing = pres.state === 'in' || pres.state === 'out';
@@ -767,9 +720,8 @@
               ? (gx, gy) => { const v = 0.55 * th(gx, gy) + 0.45 * clamp(Math.hypot((gx + 0.5) * P - bx, (gy + 0.5) * P - by) / R2, 0, 1); return v < e ? (v > e - 0.14 ? 2 : 1) : 0; }
               : (gx, gy) => { const v = 0.5 * th(gx, gy) + 0.5 * clamp(((gy + 0.5) * P - top) / H2, 0, 1); return v < e ? 0 : v < e + 0.12 ? 2 : 1; };
           }
-          if ((form === 'cursor' || look !== 'classic') && !clear) for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) setPx(gx, gy, PAL[0]);
-          if (look !== 'classic') drawLook(bx, by, env);
-          else if (form === 'cursor') drawCursor(bx, by, shX, shY, shK);
+          if (form === 'cursor' && !clear) for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) setPx(gx, gy, PAL[0]);
+          if (form === 'cursor') drawCursor(bx, by, shX, shY, shK);
           else for (let gy = gy0; gy < gy1; gy++) {
             const y = (gy + 0.5) * P;
             for (let gx = gx0; gx < gx1; gx++) {
@@ -818,7 +770,7 @@
           const eye = o.eye === 'cyclops' ? eyeCyclops : o.eye === 'visor' ? eyeVisor : eyesPixel;
           const A = act?.name;
           browAt = [];
-          if (form !== 'cursor' && look === 'classic') {
+          if (form !== 'cursor') {
             const my = eye(cx, cy);
             mouth(cx, my, pose?.mouth ?? (act && { wave: null, hype: 'shout', remind: 'o', upset: 'frown', motivate: 'grin' }[A]));
             const brow = pose ? pose.brow : A === 'upset' ? 'angry' : A === 'motivate' ? 'determined' : A === 'remind' ? 'raised' : null;
@@ -839,8 +791,7 @@
             const sf = env.safe ?? {}, top = Math.ceil(((sf.top ?? 0) + R * 0.9) / P);
             const gx = clamp(Math.round((bx + side * R * 0.95) / P), Math.ceil(((sf.left ?? 0) + R * 0.4) / P), Math.floor((env.w - (sf.right ?? 0) - R * 0.4) / P));
             const gy = Math.max(top, Math.round((by - R * 1.3) / P) - Math.round(Math.abs(Math.sin(act.a * 6))));
-            if (look === 'jarvis') Tiro.jarvis?.readout({ put, L }, gx, gy, icon, act.a, act.dur, !(P < 6 && form === 'default'));
-            else bubble(gx, gy, icon);
+            bubble(gx, gy, icon);
           }
           plug?.gridOver?.(env);
           pd = dx1 >= dx0 ? [dx0, dy0, dx1 + 1, dy1 + 1] : null;
@@ -953,9 +904,4 @@
     },
   });
 
-  Tiro.register(Tiro.ditherKit({
-    id: 'dither', label: 'Dither blob', bg: '#0f380f',
-    pal: [[15, 56, 15], [48, 98, 48], [139, 172, 15], [155, 188, 15]],
-    grid: 'rgba(15,56,15,0.18)',
-  }));
 })();

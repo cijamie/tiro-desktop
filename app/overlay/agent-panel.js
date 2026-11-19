@@ -2,47 +2,38 @@
 // streams into this card instead of the Tiro's speech bubble, as a one-line answer, points and the sites
 // it used, with full markdown (markdown.js). It opens where the drawn cards go (the next free spot from the left,
 // beside the window) and stays put while the Tiro keeps following the cursor. Drag it by its top bar.
-// Real type in the setup guide's look (pixel frame, Martian Mono), scrollable, closable, links open in the browser.
+// Real type in TiroDash's look (theme/tokens.css), scrollable, closable, links open in the browser.
 // The overlay is click-through, so the host asks Tiro.panelHit(x, y) whether the cursor is over it.
 // API: Tiro.panel.open({ status, near }) .status(text) .append(text) .end() .fail(text) .close() .isOpen .onLink
 (() => {
   const R = window.Tiro;
   const css = `
-.rp { --bg: #051214; --panel: #071a1c; --ink: #e8fffa; --ink-2: #b4d8d1; --ink-3: #8ab8b0; --accent: #78ffe2;
-  --line-hi: #2f7c74; --line-hot: #4fbfa9; --s: 2px; --ease: cubic-bezier(.2, .8, .2, 1);
-  --notch: polygon(
-    calc(var(--s) * 2) 0, calc(100% - var(--s) * 2) 0, calc(100% - var(--s) * 2) var(--s), calc(100% - var(--s)) var(--s),
-    calc(100% - var(--s)) calc(var(--s) * 2), 100% calc(var(--s) * 2), 100% calc(100% - var(--s) * 2),
-    calc(100% - var(--s)) calc(100% - var(--s) * 2), calc(100% - var(--s)) calc(100% - var(--s)),
-    calc(100% - var(--s) * 2) calc(100% - var(--s)), calc(100% - var(--s) * 2) 100%, calc(var(--s) * 2) 100%,
-    calc(var(--s) * 2) calc(100% - var(--s)), var(--s) calc(100% - var(--s)), var(--s) calc(100% - var(--s) * 2),
-    0 calc(100% - var(--s) * 2), 0 calc(var(--s) * 2), var(--s) calc(var(--s) * 2), var(--s) var(--s), calc(var(--s) * 2) var(--s));
+.rp { --ink: var(--text); --ink-2: var(--dim); --ink-3: var(--muted); --accent: var(--acc); --line-hi: var(--line2); --line-hot: var(--line2); --note: var(--dim); --ease: cubic-bezier(.2, .8, .2, 1);
   position: fixed; z-index: 5; width: 380px; display: flex; flex-direction: column;
-  background: var(--line-hot); clip-path: var(--notch); padding: 2px; box-sizing: border-box;
-  font: 400 12.5px/1.6 "Martian Mono", ui-monospace, Menlo, monospace; color: var(--ink);
-  filter: drop-shadow(0 0 10px rgba(120, 255, 226, .18)) drop-shadow(0 8px 22px rgba(0, 0, 0, .45));
+  border: 1px solid var(--line-hot); border-radius: var(--r); background: var(--panel); box-sizing: border-box; overflow: hidden;
+  font: 400 13px/1.55 var(--sans); color: var(--ink);
   opacity: 0; transform: translateX(-8px) scale(.98); transform-origin: top left;
   transition: opacity .16s var(--ease), transform .16s var(--ease); pointer-events: auto; cursor: default; }
 .rp.on { opacity: 1; transform: none; }
-.rp-in { background: rgba(5, 18, 20, .97); color: var(--ink); clip-path: var(--notch); display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.rp-head { display: flex; align-items: center; gap: 8px; padding: 9px 8px 8px 14px; border-bottom: 1px solid #12302e; cursor: grab; touch-action: none; user-select: none; }
+.rp-in { background: transparent; color: var(--ink); display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.rp-head { display: flex; align-items: center; gap: 8px; padding: 9px 8px 8px 14px; border-bottom: 1px solid var(--line); cursor: grab; touch-action: none; user-select: none; }
 .rp.drag .rp-head { cursor: grabbing; }
 .rp.drag { transition: none; }
-.rp-dot { width: 6px; height: 6px; background: var(--accent); box-shadow: 0 0 6px var(--accent); flex: none; }
+.rp-dot { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; flex: none; }
 .rp.busy .rp-dot { animation: rp-blink .9s steps(2, jump-none) infinite; }
-.rp-status { flex: 1; font-size: 11px; line-height: 1.3; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3);
+.rp-status { flex: 1; font: 600 11px/1.3 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rp-x { all: unset; width: 26px; height: 26px; display: grid; place-items: center; color: var(--ink-3); cursor: pointer; flex: none; }
-.rp-x:hover { color: var(--ink); background: #0d2a2a; }
-.rp-x:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.rp-x:hover { color: var(--ink); background: var(--raise); }
+.rp-x:focus-visible { outline: 1px solid var(--acc); outline-offset: -2px; }
 .rp-body { overflow-y: auto; overflow-x: hidden; overflow-wrap: anywhere; min-width: 0; padding: 12px 16px 14px; min-height: 0; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-hi) transparent; }
 .rp-body > :first-child { margin-top: 0; }
 .rp-body p { margin: 0 0 8px; }
 .rp-body p.lead { font-weight: 600; font-size: 13.5px; line-height: 1.5; color: var(--ink); margin-bottom: 10px; }
-.rp-body h4 { margin: 12px 0 6px; font: 600 11px/1.3 "Martian Mono", ui-monospace, monospace; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); }
+.rp-body h4 { margin: 12px 0 6px; font: 600 11px/1.3 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
 .rp-body ul, .rp-body ol { margin: 0 0 8px; padding: 0; list-style: none; }
 .rp-body li { position: relative; padding-left: 16px; margin: 0 0 6px; color: var(--ink-2); }
-.rp-body ul > li::before { content: ""; position: absolute; left: 2px; top: .62em; width: 5px; height: 5px; background: var(--accent); }
+.rp-body ul > li::before { content: ""; position: absolute; left: 2px; top: .6em; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .rp-body ol { counter-reset: n; }
 .rp-body ol > li { counter-increment: n; padding-left: 22px; }
 .rp-body ol > li::before { content: counter(n) "."; position: absolute; left: 0; color: var(--accent); }
@@ -51,20 +42,20 @@
 .rp-body s { color: var(--ink-3); }
 .rp-body code { font: inherit; color: var(--accent); }
 .rp-body a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; cursor: pointer; }
-.rp-body a:hover { color: #a8ffed; }
-.rp-body a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rp-body a:hover { color: var(--acc); }
+.rp-body a:focus-visible { outline: 1px solid var(--acc); outline-offset: 1px; }
 .rp-body li > ul, .rp-body li > ol { margin: 6px 0 0; }
 .rp-body blockquote { margin: 0 0 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--line-hi); color: var(--ink-2); }
 .rp-body blockquote p { margin: 0 0 4px; }
-.rp-body pre { margin: 0 0 10px; padding: 9px 11px; background: #030c0d; border: 1px solid #12302e; overflow-x: auto;
-  font: 400 11.5px/1.55 "Martian Mono", ui-monospace, monospace; color: var(--ink-2); white-space: pre; }
+.rp-body pre { margin: 0 0 10px; padding: 9px 11px; background: var(--bg); border: 1px solid var(--line); overflow-x: auto;
+  font: 400 11.5px/1.55 var(--mono); color: var(--ink-2); white-space: pre; }
 .rp-body pre code { color: inherit; }
-.rp-body hr { border: 0; border-top: 1px solid #12302e; margin: 10px 0; }
+.rp-body hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
 .rp-table { overflow-x: auto; margin: 0 0 10px; }
 .rp-body table { border-collapse: collapse; font-size: 11.5px; line-height: 1.45; min-width: 100%; }
-.rp-body th, .rp-body td { text-align: left; padding: 5px 9px; border-bottom: 1px solid #12302e; vertical-align: top; color: var(--ink-2); }
+.rp-body th, .rp-body td { text-align: left; padding: 5px 9px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--ink-2); }
 .rp-body th { color: var(--ink); font-weight: 600; border-bottom-color: var(--line-hi); }
-.rp-src { margin: 10px 0 0; padding-top: 9px; border-top: 1px solid #12302e; font-size: 11px; line-height: 1.5; color: var(--ink-3); }
+.rp-src { margin: 10px 0 0; padding-top: 9px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.5; color: var(--ink-3); }
 .rp-caret { display: inline-block; width: 7px; height: 1.05em; vertical-align: -0.15em; background: var(--accent); margin-left: 2px; animation: rp-blink .9s steps(2, jump-none) infinite; }
 @keyframes rp-blink { 50% { opacity: .25; } }
 @media (prefers-reduced-motion: reduce) { .rp { transform: none; transition: opacity .1s linear; } .rp.busy .rp-dot, .rp-caret { animation: none; } }

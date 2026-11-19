@@ -23,8 +23,9 @@
     return (m && BY_EXT.get(m[1].toLowerCase())) || 'other';
   };
 
-  // ---------- pixel-art file icons: 12x12 grids in the teal family ----------
-  const INK = { k: '#130b06', d: '#5a2e14', m: '#b86434', a: '#f5ac82', h: '#fdf0e8' };
+  // ---------- file icons: 12x12 grids in the theme's colours (theme/tokens.js) ----------
+  const TT = window.TiroTheme;
+  const INK = { k: TT.bg, d: TT.line2, m: TT.muted, a: TT.acc, h: TT.text };
   const blank = () => Array.from({ length: 12 }, () => Array(12).fill('.'));
   const put = (g, cells, ch) => { for (const [r, c] of cells) if (g[r]?.[c] != null) g[r][c] = ch; };
   const row = (g, r, c0, c1, ch) => { for (let c = c0; c <= c1; c++) g[r][c] = ch; };
@@ -72,8 +73,8 @@
   };
 
   // ---------- the mini agent ----------
-  const PAL = [[4, 16, 18], [14, 92, 96], [40, 196, 184], [120, 255, 226], [230, 255, 250]].map((c) => `rgb(${c.join(',')})`);
-  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
+  // The Tiro figure's cyan levels, shaded in flat bands (no dither).
+  const PAL = TT.sprite.map((c) => `rgb(${c.join(',')})`);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const ease = (u) => 1 - Math.pow(1 - clamp(u, 0, 1), 3);
   // Small glyphs (6x6, '#' lit) for what it's doing: writing, the web, a command, reading.
@@ -100,7 +101,7 @@
         const ux = (px * cs - py * sn) / (r * sx), uy = (px * sn + py * cs) / (r * sy), d = ux * ux + uy * uy;
         if (d > 1) continue;
         const lit = clamp(0.1 + 0.48 * Math.sqrt(1 - d) - 0.22 * ux - 0.3 * uy + (d > 0.78 ? -0.22 : 0), 0, 1);
-        const level = clamp(Math.floor(lit * 3.999 + BAYER[(gy & 3) * 4 + (gx & 3)] - 0.5), 0, 3) + 1;
+        const level = clamp(Math.floor(lit * 3.999), 0, 3) + 1;
         ctx.fillStyle = PAL[level];
         ctx.fillRect(gx * cell, gy * cell, dot, dot);
       }
@@ -152,7 +153,7 @@
     if (pose === 'work') {
       cy += Math.sin(T * 2.4 + seed) * 1.2 * dpr; sy = 1 + Math.sin(T * 4.8 + seed) * 0.03; sx = 2 - sy;
       blob(ctx, cx, cy, r, sx, sy, 0, cell); eyes(ctx, cx, cy, r, sx, sy, cell, open, [0.3, 0]);
-      if (glyph && GLYPHS[glyph]) bits(ctx, GLYPHS[glyph], S - 7 * dpr, 0, Math.max(1, Math.round(dpr)), G?.HOT ?? '#fdf0e8');
+      if (glyph && GLYPHS[glyph]) bits(ctx, GLYPHS[glyph], S - 7 * dpr, 0, Math.max(1, Math.round(dpr)), TT.text);
       return;
     }
     if (pose === 'wait') {
@@ -161,8 +162,8 @@
       blob(ctx, cx, cy - hop + (1 - sy) * r, r, sx, sy, 0, cell); eyes(ctx, cx, cy - hop, r, sx, sy, cell, 1, [0, -1]);
       // A pixel "?" in a small bubble, top right.
       const px = Math.max(1, Math.round(dpr)), bx = S - 8 * dpr, by = 0;
-      ctx.fillStyle = 'rgba(19, 11, 6, 0.95)'; ctx.fillRect(bx - px, by, 7 * px, 9 * px);
-      bits(ctx, ASK, bx, by + px, px, G?.ACC ?? '#f5ac82');
+      ctx.fillStyle = TT.panel; ctx.fillRect(bx - px, by, 7 * px, 9 * px);
+      bits(ctx, ASK, bx, by + px, px, TT.acc);
       return;
     }
     if (pose === 'done') {
@@ -173,7 +174,7 @@
       // Sparkles, then the pen's tick (agent-cards.js draws the same mark).
       if (!reduce && t < 1.2) for (let i = 0; i < 4; i++) {
         const a = -Math.PI / 2 + (i - 1.5) * 0.9, d = 6 + t * 8, f = clamp(1 - Math.abs(t - 0.5) / 0.6, 0, 1);
-        ctx.globalAlpha = f; ctx.fillStyle = i % 2 ? (G?.ACC ?? '#f5ac82') : (G?.HOT ?? '#fdf0e8');
+        ctx.globalAlpha = f; ctx.fillStyle = i % 2 ? TT.acc : TT.text;
         const x = size / 2 + Math.cos(a) * (size * 0.3 + d) - 1, y = size / 2 - 4 + Math.sin(a) * (size * 0.3 + d) - 1;
         ctx.fillRect(x, y - 1, 1, 3); ctx.fillRect(x - 1, y, 3, 1);
       }

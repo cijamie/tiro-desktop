@@ -134,7 +134,7 @@ const studioVoice = () => config.studioVoices?.[config.look] ?? null;
 const lookName = () => (LOOKS.find(([id]) => id === config.look) ?? LOOKS[0])[1];
 // What each says when it's picked, in its own voice (Settings and the setup guide show the same words).
 const LOOK_GREETINGS = { classic: 'Tiro, at your service.' };
-const LOOK_BODY = { classic: 'a small glowing pixel assistant' };
+const LOOK_BODY = { classic: 'a small pixel assistant' };
 const VOICE_OK = hasVoice(process.platform);
 // Windows has no on-device speech API apps can use, so voice runs Parakeet on the PC. Its model
 // is downloaded once: from the setup guide, or the first time voice is used.
