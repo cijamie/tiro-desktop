@@ -22,8 +22,8 @@
     mouse: { x: 0, y: 0, inside: false, active: false }, sleepy: 0, reduced: reduced.matches,
   };
   const sidekick = Tiro.ditherKit({
-    id: 'guide', label: 'Guide', matrix: true, pixel: 1.3, glow: 0.55, speed: 80,
-    pal: [[4, 16, 18], [14, 92, 96], [40, 196, 184], [120, 255, 226], [230, 255, 250]],
+    id: 'guide', label: 'Guide', matrix: true, pixel: 1.3, glow: 0, speed: 80,
+    pal: window.TiroTheme.sprite,
     // busy: no random acts; pose: whatever the current step wants, except while acting something out.
     // calm while a quip is up: the act keeps its gesture but drops its icon, which would sit on the bubble.
     plugin: (kit) => { K = kit; return { busy: () => true, calm: () => !!quipText && clock < quipUntil, pose: () => (clock < actUntil ? null : poseFn?.(clock) ?? null) }; },

@@ -244,7 +244,7 @@
   // The same LED renderer as on the desktop and in the setup guide, drawn small: one in the header (the Tiro
   // you have, reacting to what's going on) and one per look on the Appearance page. One loop draws them all,
   // only while the panel is up and each canvas is on screen.
-  const LED = [[4, 16, 18], [14, 92, 96], [40, 196, 184], [120, 255, 226], [230, 255, 250]];
+  const LED = window.TiroTheme.sprite;
   const live = new Set();
   let pointer = null; // the cursor in page px, for their eyes
   addEventListener('pointermove', (e) => { pointer = [e.clientX, e.clientY]; }, { passive: true });
@@ -273,7 +273,7 @@
     const me = {
       pose: null, look, form,
       kit: Tiro.ditherKit({
-        id: 'panel', label: 'Panel', matrix: true, pixel: 1.3, glow: 0.55, speed: 80, pal: LED,
+        id: 'panel', label: 'Panel', matrix: true, pixel: 1.3, glow: 0, speed: 80, pal: LED,
         // busy: no acts of its own; pose: whatever's going on, except while it's acting something out.
         plugin: (kit) => { K = kit; return { busy: () => true, pose: () => (clock < actUntil ? null : POSES[me.pose]?.(clock) ?? null) }; },
       }).create(env),
@@ -972,8 +972,8 @@
   const body = $('frame');
   body.addEventListener('animationend', (e) => {
     if (e.target !== body) return;
-    if (e.animationName === 'crt-on' && body.classList.contains('opening')) body.classList.remove('opening');
-    else if (e.animationName === 'crt-off' && body.classList.contains('shutting')) { body.classList.remove('shutting'); body.classList.add('shut'); }
+    if (e.animationName.startsWith('open-in') && body.classList.contains('opening')) body.classList.remove('opening');
+    else if (e.animationName === 'shut-out' && body.classList.contains('shutting')) { body.classList.remove('shutting'); body.classList.add('shut'); }
   });
   window.__panelOpen = (fromBottom = false) => {
     body.classList.remove('shut', 'shutting', 'opening');
