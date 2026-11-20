@@ -141,10 +141,18 @@ fn show_dashboard(app: &AppHandle) {
     match b.build() {
         Ok(w) => {
             let app2 = app.clone();
-            w.on_window_event(move |e| {
-                if let tauri::WindowEvent::Destroyed = e {
-                    to_sidecar(&app2, &json!({ "type": "dash_closed" }));
+            w.on_window_event(move |e| match e {
+                tauri::WindowEvent::Destroyed => to_sidecar(&app2, &json!({ "type": "dash_closed" })),
+                // Files dropped on the window go to the sidecar as paths (it checks and uploads them for Tiro Forge);
+                // the page only learns that something is being dragged over it, to light the drop zone.
+                tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Enter { .. }) => to_dashboard(&app2, &json!({ "kind": "drag", "on": true })),
+                tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Leave) => to_dashboard(&app2, &json!({ "kind": "drag", "on": false })),
+                tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
+                    to_dashboard(&app2, &json!({ "kind": "drag", "on": false }));
+                    let list: Vec<String> = paths.iter().take(20).map(|p| p.to_string_lossy().into_owned()).collect();
+                    to_sidecar(&app2, &json!({ "type": "dash_drop", "paths": list }));
                 }
+                _ => {}
             });
             activate_app(app);
         }

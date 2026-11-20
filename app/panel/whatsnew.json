@@ -4,18 +4,27 @@
       "version": null,
       "date": "2026-11-20",
       "items": [
+        { "kind": "new", "title": "Server, Hermes, Forge pages", "text": "In the dashboard: admin buttons (as cards), Hermes's cap, drop files to convert." },
+        { "kind": "new", "title": "See what Tiro read", "text": "A green box shows for a moment on what Tiro just looked at." }
+      ]
+    },
+    {
+      "version": "0.2.29",
+      "date": "2026-11-20",
+      "items": [
         { "kind": "improved", "title": "Asks before it looks or acts", "text": "Screenshots, reading an app, clicking, typing, opening: Allow once per app." },
         { "kind": "new", "title": "Tiro can reach this PC", "text": "Tiro on the server can talk, show a notice or set a reminder here." }
       ]
     },
     {
-      "version": "0.2.25",
+      "version": "0.2.27",
       "date": "2026-11-20",
       "items": [
         { "kind": "new", "title": "Tiro Command", "text": "Chat with Tiro in the dashboard. It's the same chat as on your phone." },
         { "kind": "new", "title": "Hand off to Hermes", "text": "Say \"Tiro, I'm heading out\" and Hermes finishes it. The result goes to your phone." },
         { "kind": "new", "title": "Ask Hermes", "text": "Start with /hermes or \"Hermes,\" to ask the Hermes agent." },
-        { "kind": "improved", "title": "Allow from the dashboard", "text": "Allow / Don't allow questions show in the dashboard too." }
+        { "kind": "improved", "title": "Allow from the dashboard", "text": "Allow / Don't allow questions show in the dashboard too." },
+        { "kind": "improved", "title": "New icon", "text": "The tray and app icon are TiroDash's [T] mark now." }
       ]
     },
     {

@@ -202,5 +202,68 @@ const never = () => new Promise(() => {}); // the event stream: stays open, send
   assert.match(side, /onAnswer: \(id, value\) => \{ const r = pending\.get\(id\); if \(!r\) return; pending\.delete\(id\); ui\(\{ kind: 'cancel_ask', id \}\); r\(value\); \}/);
   assert.match(side, /tiroCall\('POST', '\/handoff', body/);
 }
+// Server, Hermes, Forge: buttons only make cards; the cap stays in bounds; links and dropped files are checked.
+{
+  const fsx = await import('node:fs');
+  const osx = await import('node:os');
+  const px = await import('node:path');
+  const calls = [], sent = [];
+  const call = async (method, route, body) => {
+    calls.push([method, route, body]);
+    if (route === '/server/admin' && method === 'GET') return { services: ['brain', 'caddy'], recent: [{ action: 'restart', service: 'caddy', ok: true, message: 'restarted' }], helper: true, reboot_ok: true, deploy_paused: false, deploy_tail: 'deploy ok' };
+    if (route === '/server/admin') return { id: 'p7', kind: 'server_restart' };
+    if (route === '/forge' && method === 'GET') return { jobs: [{ id: 'j1', kind: 'convert', title: 'clip.mov → MP4', status: 'running', progress: '40%', uid: 'secret' }] };
+    if (route === '/drive/uploads') return { id: 'up1', received: 0 };
+    if (route.startsWith('/forge/targets')) return { to: ['jpg', 'png'], ocr: true };
+    if (route === '/proposals' || route === '/memory') return { items: [] };
+    return { ok: true };
+  };
+  const puts = [];
+  const fetchImpl = async (url, init) => {
+    if (url.endsWith('/events')) return new Promise(() => {});
+    puts.push([url, init.method, init.headers['x-tiro'], init.body.length]);
+    return { ok: true, status: 200, json: async () => ({ received: init.body.length, done: true, file: { id: 'f9', name: 'photo.heic' } }) };
+  };
+  const home = fsx.mkdtempSync(px.join(osx.tmpdir(), 'tiro-dash-home-'));
+  const d = createDashboard({ call, send: (o) => sent.push(o), fetchImpl, pollMs: 1e9, env: { TIRO_URL: 'https://tiro.jamies.dev' }, home });
+  d.handle({ type: 'dash_open' }); await tick();
+  const adm = sent.filter((o) => o.msg.kind === 'admin').at(-1).msg;
+  assert.deepEqual(adm.services, ['brain', 'caddy']); assert.equal(adm.tail, 'deploy ok');
+  d.handle({ type: 'dash_admin', action: 'restart', service: 'brain' }); await tick();
+  assert.deepEqual(calls.find(([m, r]) => m === 'POST' && r === '/server/admin')[2], { action: 'restart', service: 'brain', reason: 'from Tiro desktop' }, 'a button makes a card, nothing more');
+  const n = calls.length;
+  d.handle({ type: 'dash_admin', action: 'restart', service: 'rm -rf' }); await tick();
+  d.handle({ type: 'dash_admin', action: 'format_disk' }); await tick();
+  assert.equal(calls.filter(([m, r]) => m === 'POST' && r === '/server/admin').length, 1, 'unknown services and actions never reach the server');
+  d.handle({ type: 'dash_admin', action: 'reboot', service: 'brain' }); await tick();
+  assert.deepEqual(calls.filter(([m, r]) => m === 'POST' && r === '/server/admin').at(-1)[2], { action: 'reboot', service: '', reason: 'from Tiro desktop' });
+  d.handle({ type: 'dash_hermes_cap', usd: 9 }); d.handle({ type: 'dash_hermes_cap', usd: -1 }); d.handle({ type: 'dash_hermes_cap', usd: 'lots' }); await tick();
+  assert.ok(!calls.some(([, r]) => r === '/hermes/cap'), 'the cap stays between $0 and $5');
+  d.handle({ type: 'dash_hermes_cap', usd: '0.456' }); await tick();
+  assert.deepEqual(calls.find(([, r]) => r === '/hermes/cap')[2], { daily_usd: 0.46 });
+  assert.deepEqual(sent.filter((o) => o.msg.kind === 'forge').at(-1).msg.jobs[0], { id: 'j1', kind: 'convert', title: 'clip.mov → MP4', status: 'running', progress: '40%', error: '', made: 0 }, 'no uid passed on');
+  d.handle({ type: 'dash_forge', kind: 'download', url: 'http://192.168.0.1/admin' });
+  d.handle({ type: 'dash_forge', kind: 'download', url: 'file:///C:/x' }); await tick();
+  assert.ok(!calls.some(([m, r, b]) => m === 'POST' && r === '/forge' && b.kind === 'download'), 'private and non-web links refused');
+  d.handle({ type: 'dash_forge', kind: 'download', url: 'https://www.youtube.com/watch?v=x', audio: true }); await tick();
+  assert.deepEqual(calls.find(([m, r]) => m === 'POST' && r === '/forge')[2], { kind: 'download', url: 'https://www.youtube.com/watch?v=x', audio: true });
+  // Dropped files: a secret is refused before anything is sent; a photo uploads and is offered its targets.
+  fsx.mkdirSync(px.join(home, '.ssh'));
+  fsx.writeFileSync(px.join(home, '.ssh', 'id_ed25519'), 'KEY');
+  fsx.writeFileSync(px.join(home, 'photo.heic'), Buffer.alloc(1000, 7));
+  await d.drop([px.join(home, '.ssh', 'id_ed25519'), px.join(home, 'photo.heic'), 42]);
+  await tick();
+  const ups = d.uploads;
+  assert.equal(ups.length, 2);
+  const secret = ups.find((u) => u.name === 'id_ed25519'), photo = ups.find((u) => u.name === 'photo.heic');
+  assert.equal(secret.state, 'failed'); assert.match(secret.error, /passwords or keys/);
+  assert.equal(puts.length, 1, 'only the photo was sent');
+  assert.deepEqual(puts[0], ['https://tiro.jamies.dev/drive/uploads/up1?offset=0', 'PUT', '1', 1000]);
+  assert.deepEqual([photo.state, photo.pct, photo.file, photo.to, photo.ocr], ['done', 100, { id: 'f9', name: 'photo.heic' }, ['jpg', 'png'], true]);
+  d.handle({ type: 'dash_forge', kind: 'convert', file_id: 'f9', to: 'jpg' }); await tick();
+  assert.deepEqual(calls.filter(([m, r]) => m === 'POST' && r === '/forge').at(-1)[2], { kind: 'convert', file_id: 'f9', to: 'jpg' });
+  d.stop();
+  fsx.rmSync(home, { recursive: true, force: true });
+}
 console.log('dashboard tests passed');
 process.exit(0);

@@ -299,6 +299,7 @@ export function createTools({ allowActions, ui, ask, openUrl, onCommitments, fir
       return read();
     });
     lastRead = { win: res.window.id, app: res.window.app, controls: res.controls, turn };
+    if (res.window.bounds) ui({ kind: 'readmark', bounds: res.window.bounds, style: 'box' }); // overlay/readmark.js
     const others = (all?.windows ?? []).filter((w) => w.app === res.window.app && w.id !== res.window.id).length;
     const head = `${res.window.app}${res.window.title ? ` — ${res.window.title}` : ''}${others ? ` (front window; ${res.window.app} has ${others} more, which draw with text also searches)` : ''}`;
     if (!res.controls.length) return `${head}\n${res.note}`;
@@ -321,6 +322,8 @@ export function createTools({ allowActions, ui, ask, openUrl, onCommitments, fir
     const res = await hands('capture', file, spec, '1568');
     const size = Array.isArray(res.pixels) && res.pixels.length === 2 ? res.pixels : await fitImage(file);
     const bounds = res.window?.bounds ?? res.bounds;
+    // Marked on screen for a moment, after the shot so it's never in it (overlay/readmark.js).
+    if (bounds) ui({ kind: 'readmark', bounds, style: 'box' });
     // area: what the picture covers when it's more than the window (its child windows too); bounds still tell
     // whether the window moved.
     const area = res.area ?? bounds;

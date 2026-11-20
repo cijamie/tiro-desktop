@@ -59,12 +59,42 @@
   </section>
   <section class="page" id="page-server" hidden>
     <div class="grid2">
-      <div class="panel"><div class="lbl">[ <b>TiroCloud</b> ]<span class="r" id="sysAge"></span></div><dl class="kv" id="sys"></dl></div>
-      <div class="panel"><div class="lbl">[ <b>Containers</b> ]</div><table class="tbl" id="ctr"></table></div>
+      <div class="stack">
+        <div class="panel"><div class="lbl">[ <b>TiroCloud</b> ]<span class="r" id="sysAge"></span></div><dl class="kv" id="sys"></dl></div>
+        <div class="panel"><div class="lbl">[ <b>Admin</b> ]<span class="r">each button makes a card</span></div>
+          <p class="note">Nothing runs until you approve its card under Approvals (here or on your phone). A reboot needs a second tap.</p>
+          <div class="btnrow" id="adminBtns"></div>
+          <div class="svc" id="svc"></div>
+          <ul class="rows" id="adminJobs"></ul>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="panel"><div class="lbl">[ <b>Containers</b> ]</div><table class="tbl" id="ctr"></table></div>
+        <div class="panel"><div class="lbl">[ <b>Deploy log</b> ]<button class="r link" type="button" id="adminRefresh">refresh</button></div><pre class="tail" id="tail"></pre></div>
+      </div>
     </div>
   </section>
   <section class="page" id="page-hermes" hidden>
-    <div class="panel"><div class="lbl">[ <b>Hermes</b> ]</div><dl class="kv" id="herm"></dl></div>
+    <div class="grid2">
+      <div class="panel"><div class="lbl">[ <b>Hermes</b> ]</div><dl class="kv" id="herm"></dl></div>
+      <div class="panel"><div class="lbl">[ <b>Daily cap</b> ]</div>
+        <p class="note">At the cap, the server stops Hermes (Discord, cron and handoffs) until tomorrow or a higher cap. $0 to $5.</p>
+        <form class="addrow" id="capForm"><span class="pre num">$</span><input id="capIn" type="number" min="0" max="5" step="0.05" inputmode="decimal" aria-label="Daily cap in dollars"><button class="btn" type="submit">Save</button></form>
+      </div>
+    </div>
+  </section>
+  <section class="page" id="page-forge" hidden>
+    <div class="grid2">
+      <div class="stack">
+        <div class="drop" id="drop"><span class="tlbl lbl">Drop files here</span><p>They upload to your Tiro Files, then pick what each becomes (MP3, JPG, text…).</p></div>
+        <div class="panel"><div class="lbl">[ <b>Download from a link</b> ]</div>
+          <form class="addrow" id="dlForm"><input id="dlIn" type="url" placeholder="https://youtube.com/…" aria-label="Link to download" spellcheck="false"><label class="chk"><input type="checkbox" id="dlAudio"> audio only</label><button class="btn" type="submit">Download</button></form>
+          <p class="note">YouTube, Instagram, TikTok and other public pages. Results land in Files → Tiro Forge.</p>
+        </div>
+        <div class="panel" id="upPanel" hidden><div class="lbl">[ <b>Uploads</b> ]</div><ul class="rows" id="ups"></ul></div>
+      </div>
+      <div class="panel"><div class="lbl">[ <b>Jobs</b> ]<button class="r link" type="button" id="forgeRefresh">refresh</button></div><ul class="rows" id="jobs"></ul></div>
+    </div>
   </section>
   <section class="page" id="page-logs" hidden>
     <div class="panel log-panel tall">

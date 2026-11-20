@@ -815,6 +815,7 @@ const pcDesk = createDeskTools({
   front: () => frontData(),
   selection: () => (HANDS_OK ? readSelectionWin() : Promise.resolve(null)),
   state: () => ({ busy, voice: VOICE_ON(), speaking: !!turnVoice }),
+  mark: async () => { const b = await frontBounds(); if (b) ui({ kind: 'readmark', bounds: b, style: 'line' }); },
 });
 // The Walkaway: hand what Jamie is doing to Hermes on the server, with this PC's context (the window in front unless
 // it's Tiro's own, its highlighted text unless it's a terminal, what Tiro did lately, the last exchange). Hermes

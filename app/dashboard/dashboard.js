@@ -21,16 +21,14 @@
   const hhmm = (t) => { const d = new Date(t); return Number.isNaN(+d) ? '' : d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); };
   const money = (v) => `$${(Number(v) || 0).toFixed(2)}`;
 
-  const S = { kpi: null, deck: [], deckErr: '', lines: [], notes: { items: [], unread: 0 }, live: null, page: 'overview', filter: 'all', armed: null, busy: false, chat: [], asks: [] };
+  const S = { kpi: null, deck: [], deckErr: '', lines: [], notes: { items: [], unread: 0 }, live: null, page: 'overview', filter: 'all', armed: null, busy: false, chat: [], asks: [], admin: null, jobs: [], uploads: [] };
 
   // ---------------------------------------------------------------- rail
   const PAGES = [
     ['overview', 'Overview'], ['chat', 'Chat'], ['approvals', 'Approvals'], ['server', 'Server'], ['hermes', 'Hermes'],
-    ['forge', 'Forge', 'soon'], ['logs', 'Logs'], ['settings', 'Settings'],
+    ['forge', 'Forge'], ['logs', 'Logs'], ['settings', 'Settings'],
   ];
-  const SOON = {
-    forge: ['Forge', 'Drop files here to convert them with Tiro Forge in a later update.'],
-  };
+  const SOON = {};
   function rail() {
     $('rail').replaceChildren(...PAGES.map(([id, name, soon]) => el('button', {
       type: 'button', role: 'tab', 'aria-selected': String(S.page === id), id: `tab-${id}`, onclick: () => go(id),
@@ -139,6 +137,42 @@
     const rows = k.containers.map((c) => el('tr', {}, el('td', { text: c.name }), el('td', { class: c.state === 'running' ? 'ok' : 'bad', text: c.state }), el('td', { text: c.cpu }), el('td', { text: c.mem })));
     $('ctr').replaceChildren(el('tr', {}, ...['Service', 'State', 'CPU', 'Memory'].map((h) => el('th', { text: h }))), ...rows);
   }
+  // The admin buttons only ask the server for a card (dashboard.mjs); the deck is where it's approved.
+  function admin() {
+    const a = S.admin;
+    if (!a) return;
+    if (a.error) { fill($('adminBtns'), el('p', { class: 'err', text: a.error })); fill($('svc')); fill($('adminJobs')); return; }
+    const card = (action, service = '') => send({ type: 'dash_admin', action, service });
+    fill($('adminBtns'),
+      el('button', { class: 'btn ghost', type: 'button', onclick: () => card(a.deployPaused ? 'deploy_resume' : 'deploy_pause') }, a.deployPaused ? 'Resume auto-deploy' : 'Pause auto-deploy'),
+      el('button', { class: 'btn warn', type: 'button', disabled: !a.rebootOk, title: a.rebootOk ? '' : 'The server can\'t reboot itself (no permission, or it just started)', onclick: () => card('reboot') }, 'Reboot server…'));
+    fill($('svc'), el('span', { class: 'tlbl lbl', text: 'Restart' }), a.services.map((s) => el('button', { type: 'button', onclick: () => card('restart', s) }, s)));
+    fill($('adminJobs'), a.recent.length ? a.recent.map((j) => el('li', {}, el('span', { class: `st ${j.ok ? 'done' : 'failed'}`, text: j.ok ? 'ok' : 'failed' }),
+      el('span', { class: 'x' }, `${j.action}${j.service ? ` ${j.service}` : ''}`, j.text ? el('span', { text: j.text }) : null)))
+      : [el('li', {}, el('span', { class: 'x note', text: a.helper ? 'No admin jobs yet.' : 'The server\'s admin helper isn\'t running, so approved cards wait.' }))]);
+    $('tail').textContent = a.tail || '(empty)';
+    $('tail').scrollTop = $('tail').scrollHeight;
+  }
+  function forge() {
+    const ups = S.uploads;
+    $('upPanel').hidden = !ups.length;
+    fill($('ups'), ups.map((u) => el('li', {}, el('span', { class: `st ${u.state}`, text: u.state === 'uploading' ? `${u.pct}%` : u.state }),
+      el('div', { class: 'x' }, u.name,
+        u.state === 'uploading' ? el('div', { class: 'bar' }, el('i', { style: `width:${u.pct}%` })) : null,
+        u.error ? el('span', { class: 'err', text: u.error }) : null,
+        u.state === 'done' ? el('div', { class: 'chips' },
+          u.to.map((t) => el('button', { type: 'button', onclick: () => send({ type: 'dash_forge', kind: 'convert', file_id: u.file.id, to: t }) }, `→ ${t}`)),
+          u.ocr ? el('button', { type: 'button', onclick: () => send({ type: 'dash_forge', kind: 'ocr', file_id: u.file.id }) }, 'Read text') : null,
+          !u.to.length && !u.ocr ? el('span', { class: 'note', text: 'Saved to Files. Forge can\'t convert this kind of file.' }) : null) : null))));
+    fill($('jobs'), S.jobs.length ? S.jobs.map((j) => el('li', {}, el('span', { class: `st ${j.status}`, text: j.status }),
+      el('span', { class: 'x' }, j.title, j.progress && j.status === 'running' ? el('span', { text: j.progress }) : null, j.error ? el('span', { class: 'err', text: j.error }) : null)))
+      : [el('li', {}, el('span', { class: 'x note', text: 'No Forge jobs yet.' }))]);
+  }
+  $('adminRefresh').addEventListener('click', () => send({ type: 'dash_admin', refresh: true }));
+  $('forgeRefresh').addEventListener('click', () => send({ type: 'dash_forge', refresh: true }));
+  $('capForm').addEventListener('submit', (e) => { e.preventDefault(); const v = $('capIn').value; if (v !== '') send({ type: 'dash_hermes_cap', usd: Number(v) }); });
+  $('dlForm').addEventListener('submit', (e) => { e.preventDefault(); const u = $('dlIn').value.trim(); if (!u) return; send({ type: 'dash_forge', kind: 'download', url: u, audio: $('dlAudio').checked }); $('dlIn').value = ''; });
+
   function hermes() {
     const h = S.kpi?.hermes;
     kv('herm', h ? [['State', h.state, h.state === 'running' ? 'ok' : h.state === 'paused' ? 'warn' : ''], ['Today', `${money(h.today)} of ${money(h.cap)}`, h.cap && h.today >= h.cap ? 'bad' : ''], ['This month', money(h.month)]]
@@ -194,8 +228,9 @@
     else if (S.page === 'approvals') deck($('deck-a'));
     else if (S.page === 'logs') { filters('filters-l'); log('log-l', 300); $('logCount').textContent = `${S.lines.length} lines`; }
     else if (S.page === 'notes') { notes('notes-n', 100); $('noteCount').textContent = `${S.notes.items.length}`; }
-    else if (S.page === 'server') server();
-    else if (S.page === 'hermes') hermes();
+    else if (S.page === 'server') { server(); admin(); }
+    else if (S.page === 'hermes') { hermes(); const c = S.kpi?.hermes?.cap; if (c != null && document.activeElement !== $('capIn')) $('capIn').value = String(c); }
+    else if (S.page === 'forge') forge();
     $('live').textContent = S.live == null ? '…' : S.live ? 'live' : 'reconnecting…';
   }
   function toast(n) {
@@ -222,6 +257,10 @@
     else if (m.kind === 'toast') toast(m.notice ?? {});
     else if (m.kind === 'note') snack(m.text, m.bad);
     else if (m.kind === 'chat') { S.chat = m.items ?? []; S.asks = m.asks ?? []; }
+    else if (m.kind === 'admin') S.admin = m;
+    else if (m.kind === 'forge') S.jobs = m.jobs ?? [];
+    else if (m.kind === 'uploads') { S.uploads = m.items ?? []; if (S.uploads.length && S.page !== 'forge' && S.uploads.some((u) => u.state === 'waiting')) go('forge'); }
+    else if (m.kind === 'drag') document.body.classList.toggle('dragging', !!m.on);
     render();
   };
 
@@ -273,6 +312,9 @@
         { t: at(1), src: 'pc', text: 'Looked at your screen' }, { t: at(3), src: 'hermes', text: 'Handoff done: Summary of the lab report saved to chats' },
         { t: at(12), src: 'pc', text: 'Read notes.md' }, { t: at(25), src: 'server', text: 'Converted clip.mp4: In Files → Tiro Forge' },
         { t: at(40), src: 'server', text: 'Server OK: all 9 services running' }, { t: at(90), src: 'server', text: 'New mail from Canvas: Assignment 4 graded' }] });
+      window.__dash({ kind: 'admin', services: ['brain', 'caddy', 'dns', 'forge', 'jellyfin', 'n8n', 'nextcloud', 'ollama', 'tunnel'], recent: [{ action: 'restart', service: 'caddy', ok: true, text: 'restarted in 3 s' }], waiting: 0, helper: true, rebootOk: true, deployPaused: false, tail: '[09:12] origin/main moved: 0971252\n[09:12] rebuilding brain\n[09:13] health ok' });
+      window.__dash({ kind: 'forge', jobs: [{ id: 'j1', kind: 'convert', title: 'clip.mov → MP4', status: 'running', progress: '40%' }, { id: 'j2', kind: 'download', title: 'youtube.com/watch?v=…', status: 'done' }] });
+      window.__dash({ kind: 'uploads', items: [{ id: 'u1', name: 'IMG_2041.HEIC', pct: 100, state: 'done', file: { id: 'f1', name: 'IMG_2041.HEIC' }, to: ['jpg', 'png', 'webp', 'pdf'], ocr: true }, { id: 'u2', name: 'lecture.mp4', pct: 46, state: 'uploading', to: [] }] });
       if (new URLSearchParams(location.search).has('toast')) window.__dash({ kind: 'toast', notice: { kind: 'hermes', title: 'Handoff done', body: 'Summary of the lab report saved to chats', url: '/?chat=1' } });
     }, 0);
   }

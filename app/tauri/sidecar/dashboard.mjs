@@ -12,7 +12,10 @@
 // (onCommand → sidekick enqueue: the server's /desktop/chat with the PC's tools, /hermes, the Walkaway), and every
 // turn, from wherever it was asked, is mirrored here (asked + agent events). An Allow / Don't allow question from a PC
 // tool shows here too, as buttons; only those yes/no questions are mirrored, never a typed one (a key, a passphrase).
-import { checkNoticeLink } from './safety.mjs';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { SAFE, checkNoticeLink, checkRead, checkUrl } from './safety.mjs';
 import { tiroUrl } from './tiro.mjs';
 
 export const NEEDS_TAP = new Set(['mail_send', 'mail_trash', 'event_delete', 'drive_trash', 'doc_edit', 'server_reboot']);
@@ -23,6 +26,11 @@ export const KIND = {
   server_reboot: 'Server', server_deploy: 'Deploy',
 };
 const LOG_MAX = 300;
+// Server page buttons (POST /server/admin makes a card; it runs only once approved in the deck).
+export const ADMIN_ACTIONS = new Set(['restart', 'reboot', 'deploy_pause', 'deploy_resume']);
+const PIECE = 8 * 1024 * 1024;            // Drive's upload piece (the brain takes at most 9 MB)
+const MAX_UPLOAD = 4 * 1024 ** 3;         // Forge's own input limit
+export const HERMES_MAX_CAP = 5;
 const str = (v, n = 400) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 /** The Approval Deck: waiting proposals, then memories waiting for an OK (as TiroDash's loadDeck builds it). */
@@ -96,7 +104,7 @@ export const noticeLine = (n, t = Date.now()) => ({
  * safety.mjs checkNoticeLink). fetchImpl / env: for the event stream.
  * Returns { handle(msg) → true when it was a dash_* message, pc(recent), stop() }.
  */
-export function createDashboard({ call, send, open: openUrl = () => {}, onCommand = () => {}, onAnswer = () => {}, onNew = () => {}, chatId = () => null, fetchImpl = fetch, env = process.env, now = () => Date.now(), log = () => {}, pollMs = 10_000 } = {}) {
+export function createDashboard({ call, send, open: openUrl = () => {}, onCommand = () => {}, onAnswer = () => {}, onNew = () => {}, chatId = () => null, fetchImpl = fetch, env = process.env, now = () => Date.now(), log = () => {}, pollMs = 10_000, home = os.homedir() } = {}) {
   let open = false, poll = null, slow = null, sse = null, backoff = 5000, retry = null;
   // The conversation as the window shows it: { role: 'user'|'tiro', text, tools: [{ id, label, state }], state }.
   let chat = [], asks = new Map(), loadedChat = null;
@@ -169,6 +177,7 @@ export function createDashboard({ call, send, open: openUrl = () => {}, onComman
   }
   function onEvent({ type, data }) {
     if (type === 'notice' && data) {
+      if (data.kind === 'forge') loadForge();
       out({ kind: 'toast', notice: { title: str(data.title, 160), body: str(data.body, 400), kind: str(data.kind, 30), url: str(data.url, 500) } });
       addLines([noticeLine(data, now())]);
       loadNotes();
@@ -186,6 +195,104 @@ export function createDashboard({ call, send, open: openUrl = () => {}, onComman
     addLines([{ t: now(), src: 'pc', kind: 'card', text: `${ok ? card.done : 'Dismissed'}: ${card.label}, ${card.title}`.slice(0, 300) }]);
     out({ kind: 'acted', id, ok, done: ok ? card.done : 'Dismissed' });
     await loadDeck();
+  }
+
+  // ---- Server, Hermes, Forge ----
+  let admin = null, forge = { jobs: [] }, uploads = [];
+  async function loadAdmin() {
+    const r = await safe(call('GET', '/server/admin', undefined, { timeout: 15_000 }));
+    if (r.error) { out({ kind: 'admin', error: r.error }); return; }
+    admin = {
+      services: (r.services ?? []).map((x) => str(x, 40)).filter(Boolean),
+      recent: (r.recent ?? []).slice(0, 10).map((j) => ({ action: str(j.action, 20), service: str(j.service, 40), ok: j.ok !== false && !j.error, text: str(j.message ?? j.error ?? j.result, 200), t: str(j.done ?? j.t ?? j.time, 30) })),
+      waiting: Number(r.waiting) || 0, helper: !!r.helper, rebootOk: !!r.reboot_ok, deployPaused: !!r.deploy_paused,
+      tail: String(r.deploy_tail ?? '').slice(-6000),
+    };
+    out({ kind: 'admin', ...admin });
+  }
+  async function adminCard({ action, service }) {
+    if (!ADMIN_ACTIONS.has(action)) return;
+    if (action === 'restart' && !(admin?.services ?? []).includes(service)) { out({ kind: 'note', text: 'Pick one of the services listed.', bad: true }); return; }
+    const r = await safe(call('POST', '/server/admin', { action, service: action === 'restart' ? service : '', reason: 'from Tiro desktop' }));
+    if (r.error) { out({ kind: 'note', text: r.error, bad: true }); return; }
+    addLines([{ t: now(), src: 'pc', kind: 'card', text: `Asked for a card: ${action.replace('_', ' ')}${action === 'restart' ? ` ${service}` : ''}` }]);
+    out({ kind: 'note', text: 'Card made. Approve it under Approvals (here or on your phone).' });
+    await loadDeck();
+  }
+  async function hermesCap(usd) {
+    const v = Math.round(Number(usd) * 100) / 100;
+    if (!Number.isFinite(v) || v < 0 || v > HERMES_MAX_CAP) { out({ kind: 'note', text: `The daily cap is between $0 and $${HERMES_MAX_CAP}.`, bad: true }); return; }
+    const r = await safe(call('POST', '/hermes/cap', { daily_usd: v }));
+    if (r.error) { out({ kind: 'note', text: r.error, bad: true }); return; }
+    out({ kind: 'note', text: `Hermes's daily cap is now $${v.toFixed(2)}.` });
+    kpi();
+  }
+  async function loadForge() {
+    const r = await safe(call('GET', '/forge'));
+    if (r.error) { out({ kind: 'forge', jobs: forge.jobs, error: r.error }); return; }
+    forge = { jobs: (r.jobs ?? []).slice(0, 20).map((j) => ({ id: str(j.id, 40), kind: str(j.kind, 20), title: str(j.title, 160), status: str(j.status, 20), progress: str(j.progress, 120), error: str(j.error, 300), made: Number(j.made) || 0 })) };
+    out({ kind: 'forge', jobs: forge.jobs });
+  }
+  async function forgeJob(m) {
+    let body;
+    if (m.kind === 'download') {
+      const v = checkUrl(m.url);
+      if (v.level !== SAFE) { out({ kind: 'note', text: v.reason, bad: true }); return; }
+      body = { kind: 'download', url: String(m.url).slice(0, 2000), audio: m.audio === true };
+    } else if (m.kind === 'convert' || m.kind === 'ocr') {
+      if (typeof m.file_id !== 'string' || !m.file_id) return;
+      body = { kind: m.kind, file_id: m.file_id.slice(0, 600), ...(m.kind === 'convert' ? { to: String(m.to ?? '').slice(0, 10) } : {}) };
+    } else return;
+    const r = await safe(call('POST', '/forge', body, { timeout: 60_000 }));
+    if (r.error) { out({ kind: 'note', text: r.error, bad: true }); return; }
+    addLines([{ t: now(), src: 'pc', kind: 'forge', text: `Forge: ${body.kind === 'download' ? 'downloading a link' : body.kind === 'ocr' ? 'reading the text' : `converting to ${body.to.toUpperCase()}`}` }]);
+    out({ kind: 'note', text: "Started in Tiro Forge. You'll get a notification when it's done." });
+    await loadForge();
+  }
+  // Files dropped on the window (main.rs sends their paths): checked like any file read (safety.mjs checkRead),
+  // uploaded to Tiro's Files in 8 MB pieces, then offered for conversion. One at a time.
+  let upChain = Promise.resolve(), upSeq = 0;
+  const upOut = () => out({ kind: 'uploads', items: uploads });
+  function dropped(paths) {
+    for (const p of (Array.isArray(paths) ? paths : []).slice(0, 20)) {
+      if (typeof p !== 'string' || !p) continue;
+      const u = { id: `u${++upSeq}`, name: str(path.basename(p), 200), pct: 0, state: 'waiting', error: '', file: null, to: [], ocr: false };
+      uploads = [u, ...uploads].slice(0, 12);
+      upOut();
+      upChain = upChain.then(() => upload(p, u)).catch((e) => { u.state = 'failed'; u.error = str(e?.message ?? e, 300); upOut(); });
+    }
+    return upChain;
+  }
+  async function upload(p, u) {
+    const v = checkRead(p, home);
+    if (v.level !== SAFE) throw new Error(v.reason || 'That file is in a protected place, so it stays on this PC.');
+    const st = await fs.stat(p);
+    if (!st.isFile()) throw new Error('Drop files, not folders.');
+    if (st.size > MAX_UPLOAD) throw new Error('Too big for Forge (4 GB at most).');
+    u.state = 'uploading'; upOut();
+    const up = await call('POST', '/drive/uploads', { name: u.name, size: st.size }, { timeout: 30_000 });
+    let file = up.done ? up.file : null, at = 0;
+    const fh = await fs.open(p, 'r');
+    try {
+      while (!file && at < st.size) {
+        const n = Math.min(PIECE, st.size - at), buf = Buffer.alloc(n);
+        await fh.read(buf, 0, n, at);
+        const headers = { 'content-type': 'application/octet-stream', 'x-tiro': '1' };
+        if (env.TIRO_TOKEN) headers.authorization = `Bearer ${env.TIRO_TOKEN}`;
+        const r = await fetchImpl(`${tiroUrl(env)}/drive/uploads/${encodeURIComponent(up.id)}?offset=${at}`, { method: 'PUT', headers, body: buf, signal: AbortSignal.timeout(120_000) });
+        const j = await r.json().catch(() => ({}));
+        if (r.status === 409 && Number.isFinite(j.received)) { at = j.received; continue; }
+        if (!r.ok) throw new Error(`Upload stopped (${r.status}${typeof j.detail === 'string' ? `: ${j.detail}` : ''}).`);
+        at = Number(j.received) || at + n;
+        if (j.done) file = j.file;
+        u.pct = Math.min(100, Math.round((at / Math.max(1, st.size)) * 100)); upOut();
+      }
+    } finally { await fh.close(); }
+    if (!file?.id) throw new Error("The upload finished but Tiro didn't say where the file went.");
+    const t = await safe(call('GET', `/forge/targets?name=${encodeURIComponent(u.name)}`));
+    Object.assign(u, { state: 'done', pct: 100, file: { id: str(file.id, 600), name: str(file.name ?? u.name, 200) }, to: (t.to ?? []).map((x) => str(x, 10)), ocr: !!t.ocr });
+    addLines([{ t: now(), src: 'pc', kind: 'upload', text: `Uploaded ${u.name} to Tiro's Files` }]);
+    upOut();
   }
 
   // ---- Tiro Command ----
@@ -235,7 +342,8 @@ export function createDashboard({ call, send, open: openUrl = () => {}, onComman
     open = true;
     out({ kind: 'log', lines });
     sendChat(); loadChat();
-    kpi(); slowKpi(); loadDeck(); loadNotes(); connect();
+    kpi(); slowKpi(); loadDeck(); loadNotes(); loadAdmin(); loadForge(); connect();
+    if (uploads.length) upOut();
     poll = setInterval(kpi, pollMs);
     slow = setInterval(slowKpi, 5 * 60_000);
   }
@@ -269,6 +377,10 @@ export function createDashboard({ call, send, open: openUrl = () => {}, onComman
         const q = asks.get(m.id);
         if (q && q.choices.includes(m.value)) { asks.delete(m.id); onAnswer(m.id, m.value); sendChat(); }
       } else if (m.type === 'dash_new') { chat = []; loadedChat = null; asks.clear(); onNew(); sendChat(); }
+      else if (m.type === 'dash_admin') { if (m.refresh) loadAdmin(); else adminCard({ action: String(m.action ?? ''), service: String(m.service ?? '') }); }
+      else if (m.type === 'dash_hermes_cap') hermesCap(m.usd);
+      else if (m.type === 'dash_forge') { if (m.refresh) loadForge(); else forgeJob(m); }
+      else if (m.type === 'dash_drop') dropped(m.paths);
       return true;
     },
     /** The PC's own actions (activity.mjs recent, newest first) into the log, each once. */
@@ -294,5 +406,8 @@ export function createDashboard({ call, send, open: openUrl = () => {}, onComman
     ask,
     askDone,
     get chat() { return chat; },
+    get uploads() { return uploads; },
+    /** For tests: the upload queue as a promise. */
+    drop: (paths) => dropped(paths),
   };
 }

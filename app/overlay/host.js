@@ -502,6 +502,7 @@
     if (held) { held.q.push(m); return; }
     if (m.kind === 'notch') { if (Tiro.notch) { Tiro.notch.enabled = !!m.on; if (m.style) Tiro.notch.style = m.style; if (!m.on) Tiro.notch.close(); } return; }
     if (m.kind === 'sound') { if (Tiro.sfx) Tiro.sfx.enabled = m.on; return; }
+    if (m.kind === 'readmark') { Tiro.readMark?.(m); return; } // readmark.js: what Tiro just read on screen
     if (m.kind === 'size') { for (const t of Tiro.tiles ?? []) t.creature.setForm?.(m.size); return; }
     if (m.kind === 'look') {
       for (const t of Tiro.tiles ?? []) t.creature.setLook?.(m.look);
