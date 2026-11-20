@@ -37,7 +37,7 @@ for (let i = 1; i < 5; i++) assert.ok(theme.sprite[i][2] > theme.sprite[i - 1][2
 // system arrow: white with a black edge.)
 const OK = new Set(Object.values(DASH).map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(',')));
 const CURSOR = new Set(['#ffffff', '#000000']);
-const PAGES = ['onboarding/onboarding.css', 'panel/panel.css', 'theme/tokens.css'];
+const PAGES = ['onboarding/onboarding.css', 'panel/panel.css', 'theme/tokens.css', 'dashboard/dashboard.css'];
 for (const page of PAGES) {
   const text = src(page).replace(/\/\*[\s\S]*?\*\//g, '').replace(/url\("data:[^"]*"\)/g, '');
   for (const [hex] of text.matchAll(/#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/g)) {
@@ -101,4 +101,11 @@ assert.match(src('overlay/agent.js'), /ctx\.fillStyle = G\.WAVE;/);
 assert.match(src('onboarding/onboarding.css'), /\.meter i \{ width: 3px; background: var\(--wave\); \}/);
 // The voice helper draws the pen into captures in the same cyan.
 assert.match(src('tauri/src-tauri/voice-win/src/ink.rs'), /pass\(r, \[0x22 as f64, 0xd3 as f64, 0xee as f64\]/);
+// The dashboard: the tokens first, and server text only ever as text (never innerHTML).
+{
+  const html = src('dashboard/index.html'), js = src('dashboard/dashboard.js');
+  assert.ok(html.indexOf('theme/tokens.css') > -1 && html.indexOf('theme/tokens.css') < html.indexOf('dashboard.css'), 'the dashboard loads tokens.css first');
+  assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(js), 'the dashboard never parses server text as HTML');
+  assert.match(src('tauri/build.sh'), /cp -R [^\n]*\.\.\/dashboard /, 'build.sh ships the dashboard');
+}
 console.log('theme tests passed');

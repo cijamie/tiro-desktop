@@ -474,6 +474,23 @@ export function checkLink(url) {
   return verdict(SAFE);
 }
 
+/** A link on a Tiro notification the user clicked in the dashboard: the server only sends a Tiro path ("/…", opened on
+ *  Tiro's site) or a Gmail link (push.py _safe_url); anything else is refused, whatever the notification says.
+ *  base: Tiro's address (tiro.mjs tiroUrl). Returns the verdict and, when safe, the full url to open. */
+export function checkNoticeLink(url, base) {
+  const s = String(url ?? '').trim();
+  if (/^\/(?![\/\\])/.test(s)) {
+    let u;
+    try { u = new URL(s, `${String(base).replace(/\/+$/, '')}/`); } catch { return verdict(BLOCK, "That isn't a valid link."); }
+    if (u.origin !== new URL(String(base)).origin) return verdict(BLOCK, 'Only Tiro pages and Gmail open from a notification.');
+    return { ...verdict(SAFE), url: u.href };
+  }
+  let u;
+  try { u = new URL(s); } catch { return verdict(BLOCK, "That isn't a valid link."); }
+  if (u.protocol === 'https:' && u.hostname === 'mail.google.com' && !u.username && !u.password && !u.port) return { ...verdict(SAFE), url: u.href };
+  return verdict(BLOCK, 'Only Tiro pages and Gmail open from a notification.');
+}
+
 /** A yes from the user, typed or spoken. */
 export const isYes = (text) => /^\s*(y|yes|yeah|yep|yup|ok|okay|sure|go|go ahead|do it|run it|allow|confirm)\b/i.test(String(text ?? ''));
 

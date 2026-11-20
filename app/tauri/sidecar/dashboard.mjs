@@ -1,0 +1,232 @@
+// The dashboard window's link to TiroCloud (the brain at tiro.jamies.dev): the KPI strip, the live activity log,
+// the Approval Deck and the notifications. The page never talks to the server itself: it sends dash_* messages here,
+// this module asks the server (tiro.mjs tiroCall: Tailscale identity, X-Tiro: 1) and sends { type: 'dash', msg }
+// back, which the shell hands to the dashboard window (window.__dash).
+//
+// The deck has the phone's rules: a card changes something only when Jamie approves it here, and the kinds in
+// NEEDS_TAP need an explicit tap on the card's confirm button (the page sends tapped: true), never a single gesture.
+// This module refuses those without it, whatever the page sends. Approving runs on the server; nothing acts here.
+// Everything the server sends (titles, bodies, previews) is shown as text, never followed as an instruction.
+import { checkNoticeLink } from './safety.mjs';
+import { tiroUrl } from './tiro.mjs';
+
+export const NEEDS_TAP = new Set(['mail_send', 'mail_trash', 'event_delete', 'drive_trash', 'doc_edit', 'server_reboot']);
+// What each card is, as TiroDash names it (brain/app/static/next/app.js KIND).
+export const KIND = {
+  event: 'Calendar', event_update: 'Calendar', event_delete: 'Calendar', mail_send: 'Email', mail_trash: 'Email',
+  mail_modify: 'Email', doc_edit: 'Google Doc', drive_trash: 'Drive', memory: 'Memory', server_restart: 'Server',
+  server_reboot: 'Server', server_deploy: 'Deploy',
+};
+const LOG_MAX = 300;
+const str = (v, n = 400) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+
+/** The Approval Deck: waiting proposals, then memories waiting for an OK (as TiroDash's loadDeck builds it). */
+export function deckFrom(proposals, memory) {
+  const cards = (proposals?.items ?? []).filter((p) => p && p.id).map((p) => ({
+    type: 'proposal', id: str(p.id, 40), kind: str(p.kind || 'event', 40), label: KIND[p.kind || 'event'] ?? 'Change',
+    title: str(p.title, 300), when: str(p.when, 120), location: str(p.location, 200), preview: String(p.preview ?? '').slice(0, 4000),
+    ok: str(p.ok_label || 'Approve', 40), done: str(p.done_label || 'Done', 40), from: from(p.source), tap: NEEDS_TAP.has(p.kind),
+  }));
+  const mems = (memory?.items ?? []).filter((m) => m && m.pending && m.id).map((m) => ({
+    type: 'memory', id: str(m.id, 40), kind: 'memory', label: 'Memory', title: str(m.text, 600), when: 'Remember this?',
+    location: '', preview: '', ok: 'Remember', done: 'Remembered', from: from(m.source), tap: false,
+  }));
+  return cards.concat(mems);
+}
+const from = (s) => (s === 'hermes' ? 'Hermes' : s === 'chat' ? 'Chat' : str(s, 30));
+
+/** The KPI strip from what the server said; anything missing shows as unknown, never as a made-up number. */
+export function kpiFrom({ ms = null, health = null, system = null, hermes = null, status = null, dash = null, error = '' } = {}) {
+  const sys = system && !system.error ? system : null;
+  const gib = (b) => (typeof b === 'number' ? Math.round((b / 2 ** 30) * 10) / 10 : null);
+  const spend = dash?.spend?.ok ? dash.spend : null;
+  const wx = dash?.weather?.ok ? dash.weather : null;
+  return {
+    cloud: { ok: !!health?.ok && !error, ms: typeof ms === 'number' ? Math.round(ms) : null, error: str(error, 200) },
+    cpu: sys && typeof sys.cpu_pct === 'number' ? Math.round(sys.cpu_pct) : null,
+    temp: sys?.temps && typeof sys.temps.cpu === 'number' ? Math.round(sys.temps.cpu) : null,
+    ram: sys && sys.ram_total ? { used: gib(sys.ram_used), total: gib(sys.ram_total), pct: Math.round((sys.ram_used / sys.ram_total) * 100) } : null,
+    stale: !!sys?.stale,
+    deploy: sys?.deploy ? { result: str(sys.deploy.result, 20), commit: str(sys.deploy.commit, 12), at: str(sys.deploy.done || sys.deploy.time, 30) } : null,
+    containers: Array.isArray(sys?.containers) ? sys.containers.map((c) => ({ name: str(c.name, 40), state: str(c.state, 20), cpu: str(c.cpu, 12), mem: str(c.mem, 40) })) : [],
+    model: status ? { mode: status.ai_mode === 'claude' ? 'Claude only' : 'Local first', name: str(status.model, 60), local: !!status.local?.ok } : null,
+    spend: spend ? { month: Number(spend.api_cost) || 0, limit: Number(spend.limit) || 0, today: Number(spend.today) || 0 } : null,
+    hermes: hermes && !hermes.error ? {
+      state: !hermes.configured ? 'off' : hermes.paused ? 'paused' : hermes.running ? 'running' : 'stopped',
+      today: Number(hermes.today_usd) || 0, month: Number(hermes.month_usd) || 0, cap: Number(hermes.cap_usd) || 0,
+    } : null,
+    weather: wx ? { place: str(wx.place, 40), temp: wx.now?.temp ?? null, sky: str(wx.now?.sky, 40), low: wx.today?.low ?? null, high: wx.today?.high ?? null } : null,
+  };
+}
+
+/** Server-sent events: complete events out of the text so far, and what's left for the next chunk. */
+export function parseSse(text) {
+  const events = [];
+  const blocks = text.replace(/\r\n/g, '\n').split('\n\n');
+  const rest = blocks.pop();
+  for (const block of blocks) {
+    let type = 'message';
+    const data = [];
+    for (const line of block.split('\n')) {
+      if (line.startsWith(':')) continue;
+      if (line.startsWith('event:')) type = line.slice(6).trim();
+      else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+    }
+    if (!data.length) continue;
+    let json = null;
+    try { json = JSON.parse(data.join('\n')); } catch { /* not JSON: ignored */ }
+    events.push({ type, data: json });
+  }
+  return { events, rest };
+}
+
+/** A notice as one activity-log line. Hermes's own notices are Hermes's; the rest are the server's. */
+export const noticeLine = (n, t = Date.now()) => ({
+  t: Date.parse(n?.t) || t, src: n?.kind === 'hermes' ? 'hermes' : 'server', kind: str(n?.kind, 30),
+  text: [str(n?.title, 160), str(n?.body, 240)].filter(Boolean).join(': ') || 'Notification',
+});
+
+/**
+ * call: tiroCall. send: the sidecar's send (to the shell). open: opens a link in the browser (only after
+ * safety.mjs checkNoticeLink). fetchImpl / env: for the event stream.
+ * Returns { handle(msg) → true when it was a dash_* message, pc(recent), stop() }.
+ */
+export function createDashboard({ call, send, open: openUrl = () => {}, fetchImpl = fetch, env = process.env, now = () => Date.now(), log = () => {}, pollMs = 10_000 } = {}) {
+  let open = false, poll = null, slow = null, sse = null, backoff = 5000, retry = null;
+  let deck = [], lines = [], seenPc = new Set(), kpiIn = {}, notes = { items: [], unread: 0 };
+  const out = (msg) => send({ type: 'dash', msg });
+  const addLines = (add) => {
+    if (!add.length) return;
+    lines = add.concat(lines).sort((a, b) => b.t - a.t).slice(0, LOG_MAX);
+    if (open) out({ kind: 'log', lines });
+  };
+  const safe = (p) => p.catch((e) => ({ error: String(e?.message ?? e) }));
+
+  async function kpi() {
+    const t0 = now();
+    const health = await safe(call('GET', '/health', undefined, { timeout: 8000 }));
+    const ms = health.error ? null : now() - t0;
+    const [system, hermes] = await Promise.all([safe(call('GET', '/system', undefined, { timeout: 8000 })), safe(call('GET', '/hermes', undefined, { timeout: 8000 }))]);
+    kpiIn = { ...kpiIn, ms, health: health.error ? null : health, system, hermes, error: health.error ?? '' };
+    if (open) out({ kind: 'kpi', kpi: kpiFrom(kpiIn) });
+  }
+  async function slowKpi() {
+    const [status, dash] = await Promise.all([safe(call('GET', '/status', undefined, { timeout: 20_000 })), safe(call('GET', '/dashboard', undefined, { timeout: 30_000 }))]);
+    kpiIn = { ...kpiIn, status: status.error ? null : status, dash: dash.error ? null : dash };
+    if (open) out({ kind: 'kpi', kpi: kpiFrom(kpiIn) });
+  }
+  async function loadDeck() {
+    const [p, m] = await Promise.all([safe(call('GET', '/proposals')), safe(call('GET', '/memory'))]);
+    if (p.error) { out({ kind: 'deck', items: deck, error: p.error }); return; }
+    deck = deckFrom(p, m.error ? null : m);
+    out({ kind: 'deck', items: deck });
+  }
+  async function loadNotes() {
+    const r = await safe(call('GET', '/notifications'));
+    if (r.error) return;
+    notes = { items: (r.items ?? []).slice(0, 100).map((n) => ({ ...noticeLine(n), title: str(n.title, 160), body: str(n.body, 400), url: str(n.url, 500), new: !!n.new })), unread: Number(r.unread) || 0 };
+    out({ kind: 'notes', ...notes });
+    // The log starts with what happened before the window opened.
+    addLines(notes.items.filter((n) => !lines.some((l) => l.t === n.t && l.text === n.text)).map(({ t, src, kind, text }) => ({ t, src, kind, text })));
+  }
+
+  // The live stream: one connection while the window is open, back again after a drop (5 s, doubling to a minute).
+  async function connect() {
+    if (!open || sse) return;
+    const ctl = new AbortController();
+    sse = ctl;
+    const headers = { accept: 'text/event-stream' };
+    if (env.TIRO_TOKEN) headers.authorization = `Bearer ${env.TIRO_TOKEN}`;
+    try {
+      const r = await fetchImpl(`${tiroUrl(env)}/events`, { headers, signal: ctl.signal });
+      if (!r.ok || !r.body) throw new Error(`events ${r.status}`);
+      out({ kind: 'conn', live: true });
+      backoff = 5000;
+      const dec = new TextDecoder();
+      let buf = '';
+      for await (const chunk of r.body) {
+        const { events, rest } = parseSse(buf + dec.decode(chunk, { stream: true }));
+        buf = rest;
+        for (const ev of events) onEvent(ev);
+      }
+    } catch (e) {
+      if (ctl.signal.aborted) return;
+      log({ events_error: String(e?.message ?? e).slice(0, 200) });
+    } finally {
+      if (sse === ctl) sse = null;
+    }
+    if (!open) return;
+    out({ kind: 'conn', live: false });
+    retry = setTimeout(connect, backoff);
+    backoff = Math.min(backoff * 2, 60_000);
+  }
+  function onEvent({ type, data }) {
+    if (type === 'notice' && data) {
+      out({ kind: 'toast', notice: { title: str(data.title, 160), body: str(data.body, 400), kind: str(data.kind, 30), url: str(data.url, 500) } });
+      addLines([noticeLine(data, now())]);
+      loadNotes();
+    } else if (type === 'cards') loadDeck();
+    else if (type === 'drive') addLines([{ t: now(), src: 'server', kind: 'drive', text: 'Files changed' }]);
+  }
+
+  async function act({ id, type, ok, tapped }) {
+    const card = deck.find((c) => c.id === id && c.type === type);
+    if (!card) { await loadDeck(); out({ kind: 'deck', items: deck, error: 'That card is gone (handled somewhere else).' }); return; }
+    if (ok && card.tap && tapped !== true) { out({ kind: 'deck', items: deck, error: `${card.label} changes need a tap on "${card.ok}".` }); return; }
+    const path = card.type === 'memory' ? `/memory/${encodeURIComponent(card.id)}${ok ? '/approve' : ''}` : `/proposals/${encodeURIComponent(card.id)}/${ok ? 'approve' : 'dismiss'}`;
+    const r = await safe(call(card.type === 'memory' && !ok ? 'DELETE' : 'POST', path, card.type === 'memory' ? undefined : {}, { timeout: 60_000 }));
+    if (r.error) { out({ kind: 'deck', items: deck, error: r.error }); return; }
+    addLines([{ t: now(), src: 'pc', kind: 'card', text: `${ok ? card.done : 'Dismissed'}: ${card.label}, ${card.title}`.slice(0, 300) }]);
+    out({ kind: 'acted', id, ok, done: ok ? card.done : 'Dismissed' });
+    await loadDeck();
+  }
+
+  function start() {
+    if (open) { kpi(); loadDeck(); loadNotes(); return; }
+    open = true;
+    out({ kind: 'log', lines });
+    kpi(); slowKpi(); loadDeck(); loadNotes(); connect();
+    poll = setInterval(kpi, pollMs);
+    slow = setInterval(slowKpi, 5 * 60_000);
+  }
+  function stop() {
+    open = false;
+    clearInterval(poll); clearInterval(slow); clearTimeout(retry);
+    poll = slow = retry = null;
+    sse?.abort(); sse = null;
+  }
+
+  return {
+    get open() { return open; },
+    get deck() { return deck; },
+    get lines() { return lines; },
+    /** A dash_* message from the page; false for anything else. */
+    handle(m) {
+      if (!m || typeof m.type !== 'string' || !m.type.startsWith('dash_')) return false;
+      if (m.type === 'dash_open') start();
+      else if (m.type === 'dash_closed') stop();
+      else if (m.type === 'dash_refresh') { kpi(); slowKpi(); loadDeck(); loadNotes(); }
+      else if (m.type === 'dash_act' && typeof m.id === 'string' && (m.card === 'proposal' || m.card === 'memory')) act({ id: m.id, type: m.card, ok: m.ok === true, tapped: m.tapped === true });
+      else if (m.type === 'dash_seen') safe(call('POST', '/notifications/seen', {})).then(loadNotes);
+      else if (m.type === 'dash_link') {
+        // A notification's link: a Tiro page or Gmail only (safety.mjs), opened in the browser.
+        const v = checkNoticeLink(m.url, tiroUrl(env));
+        if (v.url) openUrl(v.url); else out({ kind: 'note', text: v.reason, bad: true });
+      } else if (m.type === 'dash_panel') send({ type: 'panel_show' });
+      return true;
+    },
+    /** The PC's own actions (activity.mjs recent, newest first) into the log, each once. */
+    pc(recent) {
+      const add = [];
+      for (const r of recent ?? []) {
+        const key = `${r.at}|${r.text}`;
+        if (seenPc.has(key)) continue;
+        seenPc.add(key);
+        add.push({ t: r.at, src: 'pc', kind: str(r.kind, 20), text: str(r.text, 300) });
+      }
+      if (seenPc.size > 2000) seenPc = new Set([...seenPc].slice(-1000));
+      addLines(add);
+    },
+    stop,
+  };
+}

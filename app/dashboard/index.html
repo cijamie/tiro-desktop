@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tiro</title>
+<link rel="stylesheet" href="../theme/tokens.css">
+<link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+<header class="top">
+  <span class="brand">TIRO</span>
+  <div class="strip" id="strip" aria-label="TiroCloud at a glance"></div>
+  <button class="chip bell" type="button" id="bell" aria-label="Notifications"><span class="tlbl">Notifs</span> <b id="bellN" class="num">0</b></button>
+</header>
+<nav class="rail" aria-label="Pages">
+  <div class="rail-pages" id="rail" role="tablist" aria-orientation="vertical"></div>
+  <p class="wx" id="wx"></p>
+</nav>
+<main id="main">
+  <section class="page" id="page-overview" aria-labelledby="h-overview">
+    <h1 class="vh" id="h-overview">Overview</h1>
+    <div class="grid2">
+      <div class="panel log-panel">
+        <div class="lbl">[ <b>Activity</b> ]<span class="r" id="live">…</span></div>
+        <div class="filters" id="filters-o" role="group" aria-label="Show"></div>
+        <ul class="log" id="log-o" aria-live="polite"></ul>
+      </div>
+      <div class="stack">
+        <div class="panel deck" id="deck-o"></div>
+        <div class="panel">
+          <div class="lbl">[ <b>Notifications</b> ]<button class="r link" type="button" id="seeAll">all</button></div>
+          <ul class="rows" id="notes-o"></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class="page" id="page-approvals" hidden>
+    <div class="panel deck big" id="deck-a"></div>
+  </section>
+  <section class="page" id="page-server" hidden>
+    <div class="grid2">
+      <div class="panel"><div class="lbl">[ <b>TiroCloud</b> ]<span class="r" id="sysAge"></span></div><dl class="kv" id="sys"></dl></div>
+      <div class="panel"><div class="lbl">[ <b>Containers</b> ]</div><table class="tbl" id="ctr"></table></div>
+    </div>
+  </section>
+  <section class="page" id="page-hermes" hidden>
+    <div class="panel"><div class="lbl">[ <b>Hermes</b> ]</div><dl class="kv" id="herm"></dl></div>
+  </section>
+  <section class="page" id="page-logs" hidden>
+    <div class="panel log-panel tall">
+      <div class="lbl">[ <b>Activity</b> ]<span class="r" id="logCount"></span></div>
+      <div class="filters" id="filters-l" role="group" aria-label="Show"></div>
+      <ul class="log" id="log-l"></ul>
+    </div>
+  </section>
+  <section class="page" id="page-notes" hidden>
+    <div class="panel"><div class="lbl">[ <b>Notifications</b> ]<span class="r" id="noteCount"></span></div><ul class="rows" id="notes-n"></ul></div>
+  </section>
+  <section class="page" id="page-soon" hidden>
+    <div class="panel"><div class="lbl">[ <b id="soonName">Soon</b> ]</div><p class="note" id="soonText"></p></div>
+  </section>
+  <section class="page" id="page-settings" hidden>
+    <div class="panel">
+      <div class="lbl">[ <b>Settings</b> ]</div>
+      <p class="note">The model, voice, shortcuts and the rest live in the panel by the clock.</p>
+      <div class="btnrow"><button class="btn" type="button" id="openPanel">Open the panel</button><button class="btn ghost" type="button" id="openWeb">Open TiroDash</button></div>
+    </div>
+  </section>
+</main>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<p class="snack" id="snack" role="status" hidden></p>
+<script src="dashboard.js"></script>
+</body>
+</html>
