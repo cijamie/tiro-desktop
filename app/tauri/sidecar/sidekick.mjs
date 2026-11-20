@@ -53,7 +53,8 @@ import { OLLAMA, connectLocal, contextNote, downNote, forgetLocal, isSmallModel,
 import { activityLogs, buildReport, redact, reportDir, reportName, reveal, run, scrubConfig, tail } from './diagnostics.mjs';
 import { detailsText, explain } from './errors.mjs';
 import { aboutTiro } from './about.mjs';
-import { tiroCall, tiroPrompt } from './tiro.mjs';
+import { TERMINALS, readSelectionWin, tiroCall, tiroPrompt } from './tiro.mjs';
+import { handoffBody, handoffContext, isTiroWindow, route } from './walkaway.mjs';
 import { brainOf, noteTurn, serverEvents, takeoverTool, tiroMemory } from './serverbrain.mjs';
 import { createToday } from './today.mjs';
 import { whatsNewOnStart } from './whatsnew.mjs';
@@ -75,6 +76,8 @@ const ui = (msg) => {
     if (guideVoices.has(msg.id)) { if (msg.end) guideVoices.delete(msg.id); return send({ type: 'onboard', msg }); }
   }
   if (intro && msg.kind === 'agent') return send({ type: 'onboard', msg: { kind: 'chat', e: msg.e } });
+  // Every turn shows in the dashboard's Tiro Command too, wherever it was asked (dashboard.mjs).
+  if (msg.kind === 'agent' && dash.open) dash.agent(msg.e);
   send({ type: 'ui', msg });
 };
 const ob = (msg) => send({ type: 'onboard', msg });
@@ -694,7 +697,14 @@ function commitmentsText() {
 let agent = null, controller = null, busy = false, quiet = false, running = Promise.resolve();
 const activity = createActivity();
 // The dashboard window (dashboard.mjs): the KPI strip, the activity log, the Approval Deck, while it's open.
-const dash = createDashboard({ call: tiroCall, send, open: (url) => openUrl(url), log: (o) => logLine('dash', o) });
+const dash = createDashboard({
+  call: tiroCall, send, open: (url) => openUrl(url), log: (o) => logLine('dash', o), chatId: () => tiroChat.id,
+  // Typed in Tiro Command: the same pipeline as the ask bar (enqueue routes /hermes and the Walkaway).
+  onCommand: (text) => enqueue(text),
+  // Allow / Don't allow answered in the window: the same as answering the bubble, which then closes.
+  onAnswer: (id, value) => { const r = pending.get(id); if (!r) return; pending.delete(id); ui({ kind: 'cancel_ask', id }); r(value); },
+  onNew: () => { endIntro(); freshSession('new'); tiroChat.id = null; menu(); },
+});
 // Rebuild the agent (same conversation) before the next message. Rarely needed now: memory and settings
 // reach the model through the live section, which is refreshed before every call.
 let agentStale = false;
@@ -781,11 +791,58 @@ let credsBaseUrl;
 // One run at a time: a new request waits for (or interrupts) the current one. Folding waits until none is left.
 let queued = 0;
 function enqueue(text, { interrupt = false, image = null, note = '', byVoice = false, listenAfter = false, news = null, takeover = false } = {}) {
+  // "/hermes …" and the Walkaway ("Tiro, I'm heading out …") go to the server as themselves (walkaway.mjs).
+  const r = !takeover && !news && !image && !intro ? route(text) : { kind: 'chat' };
+  if (r.kind !== 'chat') {
+    queued++;
+    running = running.then(() => (r.kind === 'handoff' ? walkaway(text, r.task) : hermesTurn(text))).catch((e) => console.error(r.kind, e))
+      .finally(() => { queued--; });
+    return running;
+  }
   if (interrupt && busy) interruptQuietly('new request');
   queued++;
   running = running.then(() => prompt(text, image, note, byVoice, news, listenAfter, takeover)).catch((e) => console.error('prompt', e))
     .finally(() => { if (--queued === 0) maybeCompact(); });
   return running;
+}
+// The Walkaway: hand what Jamie is doing to Hermes on the server, with this PC's context (the window in front unless
+// it's Tiro's own, its highlighted text unless it's a terminal, what Tiro did lately, the last exchange). Hermes
+// finishes it in the background; the result follows Jamie to the phone and glasses as a notification.
+let lastAsked = '';
+async function walkaway(text, task) {
+  activity.asked(text);
+  if (dash.open) dash.asked(text);
+  ui({ kind: 'agent', e: { type: 'start' } });
+  try {
+    const front = await Promise.race([frontData().catch(() => null), new Promise((r) => setTimeout(() => r(null), 1500))]);
+    const own = isTiroWindow(front);
+    const selection = !own && HANDS_OK && !TERMINALS.test(`${front?.app ?? ''} ${front?.title ?? ''}`) ? (await readSelectionWin().catch(() => null)) ?? '' : '';
+    const body = handoffBody(task, handoffContext({ front: own ? null : front, selection, recent: activity.recent, asked: lastAsked, answered: lastReply }));
+    logLine('handoff', { chars: body.context.length, front: !!front && !own, selection: !!selection });
+    const r = await tiroCall('POST', '/handoff', body, { timeout: 30_000 });
+    const said = r.by === 'hermes' ? `Handed to Hermes: ${r.started}. You'll get a notification on your phone and glasses when it's done.` : `Started a background job on Tiro: ${r.started}. You'll get a notification when it's done.`;
+    ui({ kind: 'agent', e: { type: 'text', text: said } });
+    ui({ kind: 'agent', e: { type: 'done' } });
+  } catch (e) {
+    ui({ kind: 'agent', e: { type: 'error', message: `Couldn't hand it over: ${String(e?.message ?? e).slice(0, 300)}` } });
+  }
+}
+// "/hermes …" or "Hermes, …": that turn goes to the Hermes agent through Tiro's /chat (owner only, text only), in the
+// same conversation as the rest, so the phone sees it too.
+async function hermesTurn(text) {
+  activity.asked(text);
+  if (dash.open) dash.asked(text);
+  lastAsked = text;
+  ui({ kind: 'agent', e: { type: 'start' } });
+  try {
+    const r = await tiroCall('POST', '/chat', { message: text, ...(tiroChat.id ? { chat_id: tiroChat.id } : {}) }, { timeout: 300_000 });
+    if (r.chat_id) tiroChat.id = r.chat_id;
+    lastReply = String(r.reply ?? '');
+    ui({ kind: 'agent', e: { type: 'text', text: `Hermes: ${lastReply || '(no reply)'}` } });
+    ui({ kind: 'agent', e: { type: 'done' } });
+  } catch (e) {
+    ui({ kind: 'agent', e: { type: 'error', message: String(e?.message ?? e).slice(0, 400) } });
+  }
 }
 // The welcome tour: job tickets for what it can do and a medal for their goal, spoken when replies are.
 let tourPending = null, tours = 0;
@@ -1098,7 +1155,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
   busy = true; quiet = false; autoTurn = null;
   saidPending = true; clearTimeout(saidCap); stir();
   holdWake(true);
-  if (!intro && !text.startsWith('(')) activity.asked(text);
+  if (!intro && !text.startsWith('(')) { activity.asked(text); lastAsked = text; if (dash.open) dash.asked(text); }
   menu();
   controller = new AbortController();
   agent?.setSignal(controller.signal);
@@ -1297,11 +1354,16 @@ function ask(opts, signal) {
   // The setup guide has no buttons: its answer box takes a typed y.
   if (onboarding && opts.choices) opts = { ...opts, placeholder: `${opts.placeholder} Type y to allow.` };
   to({ kind: 'ask', id, ...opts });
-  return new Promise((resolve) => {
+  // A yes/no shows in the dashboard too (never a typed question: keys and passphrases stay in the bubble).
+  if (!onboarding && Array.isArray(opts.choices) && dash.open) dash.ask({ id, question: opts.placeholder ?? opts.prompt ?? '', choices: opts.choices });
+  const answered = new Promise((resolve) => {
     pending.set(id, resolve);
     // Another route finished first (e.g. the OAuth callback server): close the input bubble.
     signal?.addEventListener('abort', () => { pending.delete(id); to({ kind: 'cancel_ask', id }); resolve(null); }, { once: true });
   });
+  // However it ends (answered in the bubble or the window, or cancelled), the dashboard drops the question.
+  answered.then(() => dash.askDone(id));
+  return answered;
 }
 
 // ---------- logins ----------

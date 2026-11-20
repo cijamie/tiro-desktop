@@ -21,15 +21,14 @@
   const hhmm = (t) => { const d = new Date(t); return Number.isNaN(+d) ? '' : d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); };
   const money = (v) => `$${(Number(v) || 0).toFixed(2)}`;
 
-  const S = { kpi: null, deck: [], deckErr: '', lines: [], notes: { items: [], unread: 0 }, live: null, page: 'overview', filter: 'all', armed: null, busy: false };
+  const S = { kpi: null, deck: [], deckErr: '', lines: [], notes: { items: [], unread: 0 }, live: null, page: 'overview', filter: 'all', armed: null, busy: false, chat: [], asks: [] };
 
   // ---------------------------------------------------------------- rail
   const PAGES = [
-    ['overview', 'Overview'], ['chat', 'Chat', 'soon'], ['approvals', 'Approvals'], ['server', 'Server'], ['hermes', 'Hermes'],
+    ['overview', 'Overview'], ['chat', 'Chat'], ['approvals', 'Approvals'], ['server', 'Server'], ['hermes', 'Hermes'],
     ['forge', 'Forge', 'soon'], ['logs', 'Logs'], ['settings', 'Settings'],
   ];
   const SOON = {
-    chat: ['Chat', 'Tiro Command (chat with the server, /hermes and handoffs) comes in the next update.'],
     forge: ['Forge', 'Drop files here to convert them with Tiro Forge in a later update.'],
   };
   function rail() {
@@ -146,10 +145,52 @@
       : [['State', S.kpi ? 'unknown (owner only, or the server is offline)' : '…']]);
   }
 
+  // ---------------------------------------------------------------- Tiro Command
+  const who = (role) => el('span', { class: 'who tlbl lbl', text: role === 'user' ? 'You' : 'Tiro' });
+  function msgEl(m) {
+    return el('li', { class: `msg ${m.role} ${m.state === 'live' ? 'live' : ''}` }, who(m.role), m.text || (m.state === 'live' ? '' : m.error ? '' : '(no reply)'),
+      m.tools?.length ? el('div', { class: 'tools' }, m.tools.map((t) => el('span', { class: `tool ${t.state}`, text: t.label }))) : null,
+      m.error ? el('p', { class: 'err', text: m.error }) : null);
+  }
+  function asksEl(box) {
+    fill(box, S.asks.map((q) => el('div', { class: 'askq' }, el('span', { class: 'tlbl lbl', text: 'Needs your OK' }), el('p', { text: q.question }),
+      q.choices.map((c, i) => el('button', { class: `btn ${i ? 'ghost' : ''}`, type: 'button', onclick: () => send({ type: 'dash_answer', id: q.id, value: c }) }, c)))));
+  }
+  function chatPage() {
+    const box = $('chat'), atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    fill(box, S.chat.length ? S.chat.map(msgEl) : [el('li', { class: 'empty', text: 'Ask anything. "/hermes …" asks Hermes; "Tiro, I\'m heading out …" hands what you\'re doing to Hermes, with this PC\'s context.' })]);
+    asksEl($('asks-c'));
+    if (atEnd) box.scrollTop = box.scrollHeight;
+  }
+  // The Overview shows the latest exchange (and any question waiting for an OK) under the box.
+  function lastExchange() {
+    const box = $('last-o'), t = [...S.chat].reverse().find((m) => m.role === 'tiro'), u = [...S.chat].reverse().find((m) => m.role === 'user');
+    box.hidden = !t && !S.asks.length;
+    if (box.hidden) return;
+    const asks = el('div', { class: 'asks' }); asksEl(asks);
+    fill(box, t ? [who('tiro'), t.text || (t.state === 'live' ? `Working on "${(u?.text ?? '').slice(0, 80)}"…` : ''), t.error ? el('p', { class: 'err', text: t.error }) : null] : [], S.asks.length ? asks : null);
+  }
+  function command(input) {
+    const text = input.value.trim();
+    if (!text) return;
+    send({ type: 'dash_cmd', text });
+    input.value = '';
+    fitBox(input);
+  }
+  const fitBox = (ta) => { if (ta.tagName !== 'TEXTAREA') return; ta.style.height = 'auto'; ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`; };
+  for (const k of ['o', 'c']) {
+    const form = $(`cmd-${k}`), input = $(`cmdIn-${k}`);
+    form.addEventListener('submit', (e) => { e.preventDefault(); command(input); if (k === 'o' && S.page !== 'chat') lastExchange(); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && input.tagName === 'TEXTAREA') { e.preventDefault(); command(input); } });
+    input.addEventListener('input', () => fitBox(input));
+  }
+  $('newChat').addEventListener('click', () => send({ type: 'dash_new' }));
+
   // ---------------------------------------------------------------- render
   function render() {
     strip(); rail();
-    if (S.page === 'overview') { filters('filters-o'); log('log-o', 80); deck($('deck-o')); notes('notes-o', 6); }
+    if (S.page === 'overview') { filters('filters-o'); log('log-o', 80); deck($('deck-o')); notes('notes-o', 6); lastExchange(); }
+    else if (S.page === 'chat') chatPage();
     else if (S.page === 'approvals') deck($('deck-a'));
     else if (S.page === 'logs') { filters('filters-l'); log('log-l', 300); $('logCount').textContent = `${S.lines.length} lines`; }
     else if (S.page === 'notes') { notes('notes-n', 100); $('noteCount').textContent = `${S.notes.items.length}`; }
@@ -180,6 +221,7 @@
     else if (m.kind === 'conn') S.live = !!m.live;
     else if (m.kind === 'toast') toast(m.notice ?? {});
     else if (m.kind === 'note') snack(m.text, m.bad);
+    else if (m.kind === 'chat') { S.chat = m.items ?? []; S.asks = m.asks ?? []; }
     render();
   };
 
@@ -193,6 +235,16 @@
 
   // ---------------------------------------------------------------- browser preview (sample data)
   function preview(msg) {
+    if (msg.type === 'dash_cmd') {
+      preview.chat = (preview.chat ?? []).concat({ role: 'user', text: msg.text, tools: [], state: 'done' }, { role: 'tiro', text: '', tools: [{ id: 't1', label: 'looking at your screen', state: 'run' }], state: 'live' });
+      window.__dash({ kind: 'chat', items: preview.chat, asks: [{ id: 'a1', question: 'Open Word to edit "Lab report.docx"?', choices: ['Allow', "Don't allow"] }] });
+      return;
+    }
+    if (msg.type === 'dash_answer') {
+      const m = preview.chat.at(-1); m.tools[0].state = 'ok'; m.text = 'Done. I opened the report and added the results table.'; m.state = 'done';
+      window.__dash({ kind: 'chat', items: preview.chat, asks: [] });
+      return;
+    }
     if (msg.type !== 'dash_open' && msg.type !== 'dash_act') return;
     const now = Date.now(), at = (m) => now - m * 60_000;
     if (msg.type === 'dash_act') {

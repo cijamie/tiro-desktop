@@ -7,6 +7,11 @@
 // NEEDS_TAP need an explicit tap on the card's confirm button (the page sends tapped: true), never a single gesture.
 // This module refuses those without it, whatever the page sends. Approving runs on the server; nothing acts here.
 // Everything the server sends (titles, bodies, previews) is shown as text, never followed as an instruction.
+//
+// Tiro Command (the chat in the window): what's typed goes to the same pipeline as the ask bar and the voice
+// (onCommand → sidekick enqueue: the server's /desktop/chat with the PC's tools, /hermes, the Walkaway), and every
+// turn, from wherever it was asked, is mirrored here (asked + agent events). An Allow / Don't allow question from a PC
+// tool shows here too, as buttons; only those yes/no questions are mirrored, never a typed one (a key, a passphrase).
 import { checkNoticeLink } from './safety.mjs';
 import { tiroUrl } from './tiro.mjs';
 
@@ -91,8 +96,10 @@ export const noticeLine = (n, t = Date.now()) => ({
  * safety.mjs checkNoticeLink). fetchImpl / env: for the event stream.
  * Returns { handle(msg) → true when it was a dash_* message, pc(recent), stop() }.
  */
-export function createDashboard({ call, send, open: openUrl = () => {}, fetchImpl = fetch, env = process.env, now = () => Date.now(), log = () => {}, pollMs = 10_000 } = {}) {
+export function createDashboard({ call, send, open: openUrl = () => {}, onCommand = () => {}, onAnswer = () => {}, onNew = () => {}, chatId = () => null, fetchImpl = fetch, env = process.env, now = () => Date.now(), log = () => {}, pollMs = 10_000 } = {}) {
   let open = false, poll = null, slow = null, sse = null, backoff = 5000, retry = null;
+  // The conversation as the window shows it: { role: 'user'|'tiro', text, tools: [{ id, label, state }], state }.
+  let chat = [], asks = new Map(), loadedChat = null;
   let deck = [], lines = [], seenPc = new Set(), kpiIn = {}, notes = { items: [], unread: 0 };
   const out = (msg) => send({ type: 'dash', msg });
   const addLines = (add) => {
@@ -181,10 +188,53 @@ export function createDashboard({ call, send, open: openUrl = () => {}, fetchImp
     await loadDeck();
   }
 
+  // ---- Tiro Command ----
+  const CHAT_MAX = 120;
+  const sendChat = () => { if (open) out({ kind: 'chat', items: chat, asks: [...asks.values()] }); };
+  const lastTiro = () => { const m = chat.at(-1); return m?.role === 'tiro' && m.state === 'live' ? m : null; };
+  const push = (m) => { chat.push(m); if (chat.length > CHAT_MAX) chat = chat.slice(-CHAT_MAX); };
+  // The saved conversation on the server (shared with the phone), when the window opens on one already going.
+  async function loadChat() {
+    const id = chatId();
+    if (!id || id === loadedChat || chat.length) return;
+    const c = await safe(call('GET', `/chats/${encodeURIComponent(id)}`));
+    if (c.error || !Array.isArray(c.messages)) return;
+    loadedChat = id;
+    chat = c.messages.filter((m) => typeof m.content === 'string' && (m.role === 'user' || m.role === 'assistant')).slice(-40)
+      .map((m) => ({ role: m.role === 'user' ? 'user' : 'tiro', text: str(m.content.replace(/^\[[^\]]{6,40}\]\s*/, ''), 20000), tools: [], state: 'done', t: Date.parse(m.t) || 0 }));
+    sendChat();
+  }
+  function asked(text) {
+    push({ role: 'user', text: String(text ?? '').slice(0, 20000), tools: [], state: 'done', t: now() });
+    sendChat();
+  }
+  function agent(e) {
+    if (!e || typeof e.type !== 'string') return;
+    let m = lastTiro();
+    if (e.type === 'start') { if (!m) push({ role: 'tiro', text: '', tools: [], state: 'live', t: now() }); }
+    else if (e.type === 'text') { if (!m) { m = { role: 'tiro', text: '', tools: [], state: 'live', t: now() }; push(m); } m.text = (m.text + String(e.text ?? '')).slice(-40000); }
+    else if (e.type === 'tool' && e.anim) { if (m) m.tools.push({ id: str(e.id, 80), label: str([e.anim.label, e.anim.detail].filter(Boolean).join(' '), 80), state: 'run' }); }
+    else if (e.type === 'tool_end') { const t = m?.tools.find((x) => x.id === e.id); if (t) t.state = e.isError ? 'bad' : 'ok'; }
+    else if (e.type === 'done' || e.type === 'error') {
+      if (!m) { m = { role: 'tiro', text: '', tools: [], state: 'live', t: now() }; push(m); }
+      if (e.type === 'error') { m.error = str(e.message, 600); m.state = 'bad'; } else m.state = 'done';
+      for (const t of m.tools) if (t.state === 'run') t.state = 'ok';
+    } else return;
+    sendChat();
+  }
+  // A yes/no from a PC tool (tools.mjs confirm): shown as buttons; answered here or in the overlay, whichever first.
+  function ask({ id, question, choices }) {
+    if (!Array.isArray(choices) || !choices.length) return;
+    asks.set(id, { id: str(id, 40), question: str(question, 600), choices: choices.map((c) => str(c, 40)) });
+    sendChat();
+  }
+  function askDone(id) { if (asks.delete(id)) sendChat(); }
+
   function start() {
-    if (open) { kpi(); loadDeck(); loadNotes(); return; }
+    if (open) { kpi(); loadDeck(); loadNotes(); sendChat(); return; }
     open = true;
     out({ kind: 'log', lines });
+    sendChat(); loadChat();
     kpi(); slowKpi(); loadDeck(); loadNotes(); connect();
     poll = setInterval(kpi, pollMs);
     slow = setInterval(slowKpi, 5 * 60_000);
@@ -213,6 +263,12 @@ export function createDashboard({ call, send, open: openUrl = () => {}, fetchImp
         const v = checkNoticeLink(m.url, tiroUrl(env));
         if (v.url) openUrl(v.url); else out({ kind: 'note', text: v.reason, bad: true });
       } else if (m.type === 'dash_panel') send({ type: 'panel_show' });
+      else if (m.type === 'dash_cmd' && typeof m.text === 'string' && m.text.trim()) onCommand(m.text.trim().slice(0, 8000));
+      else if (m.type === 'dash_answer' && typeof m.id === 'string') {
+        // Only a question that's still open, and only one of its own choices.
+        const q = asks.get(m.id);
+        if (q && q.choices.includes(m.value)) { asks.delete(m.id); onAnswer(m.id, m.value); sendChat(); }
+      } else if (m.type === 'dash_new') { chat = []; loadedChat = null; asks.clear(); onNew(); sendChat(); }
       return true;
     },
     /** The PC's own actions (activity.mjs recent, newest first) into the log, each once. */
@@ -228,5 +284,10 @@ export function createDashboard({ call, send, open: openUrl = () => {}, fetchImp
       addLines(add);
     },
     stop,
+    asked,
+    agent,
+    ask,
+    askDone,
+    get chat() { return chat; },
   };
 }

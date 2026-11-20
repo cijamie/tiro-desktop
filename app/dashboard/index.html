@@ -20,6 +20,12 @@
 <main id="main">
   <section class="page" id="page-overview" aria-labelledby="h-overview">
     <h1 class="vh" id="h-overview">Overview</h1>
+    <form class="cmd" id="cmd-o" autocomplete="off">
+      <span class="pr" aria-hidden="true">›</span>
+      <input id="cmdIn-o" type="text" spellcheck="false" aria-label="Tiro Command" placeholder="Ask Tiro · /hermes … · Tiro, I'm heading out …">
+      <button class="btn" type="submit">Send</button>
+    </form>
+    <div class="cmd-last" id="last-o" hidden></div>
     <div class="grid2">
       <div class="panel log-panel">
         <div class="lbl">[ <b>Activity</b> ]<span class="r" id="live">…</span></div>
@@ -33,6 +39,19 @@
           <ul class="rows" id="notes-o"></ul>
         </div>
       </div>
+    </div>
+  </section>
+  <section class="page" id="page-chat" hidden>
+    <div class="panel chat-panel">
+      <div class="lbl">[ <b>Tiro Command</b> ]<button class="r link" type="button" id="newChat">+ new</button></div>
+      <ol class="chat" id="chat" aria-live="polite"></ol>
+      <div class="asks" id="asks-c"></div>
+      <form class="cmd" id="cmd-c" autocomplete="off">
+        <span class="pr" aria-hidden="true">›</span>
+        <textarea id="cmdIn-c" rows="1" spellcheck="false" aria-label="Tiro Command" placeholder="Ask Tiro · /hermes … · Tiro, I'm heading out …"></textarea>
+        <button class="btn" type="submit">Send</button>
+      </form>
+      <p class="hint">Enter sends · Shift+Enter for a new line · this chat is shared with your phone</p>
     </div>
   </section>
   <section class="page" id="page-approvals" hidden>
