@@ -303,22 +303,6 @@ assert.match(opened, /no app called "NoSuchAppTiroTest"/, 'treated as a link ope
   assert.equal(await gone(), '', 'a change after a missed first read still clears it');
   fs.rmSync(path.join(dir, 'front.json'));
 }
-fs.rmSync(dir, { recursive: true, force: true });
-console.log('hands tests: passed');
-
-// Live "where am I" line: app, window title and page, without query strings; '' when nothing is known.
-{
-  const { frontLine } = await import('../tools.mjs');
-  const l = frontLine({ app: 'Google Chrome', title: 'Inbox (3) - me@example.com - Gmail', url: 'https://mail.google.com/mail/u/0/?tab=rm&token=SECRET#inbox' }, 'Ken');
-  assert.match(l, /Right now Ken is in Google Chrome — "Inbox \(3\) - me@example.com - Gmail" \(mail\.google\.com\/mail\/u\/0\)/);
-  assert.match(l, /overrides any app or page from earlier/);
-  assert.ok(!/SECRET|tab=/.test(l), 'query string dropped');
-  assert.equal(frontLine({ app: 'Notes', url: 'file:///Users/x/secret.txt' }), '- Right now The user is in Notes. This was just checked and overrides any app or page from earlier messages; they can still ask about something elsewhere.');
-  assert.equal(frontLine({}), '');
-  assert.equal(frontLine(null), '');
-  console.log('front line tests: passed');
-}
-
 // Tier 2 asks first: once per app per request; a no refuses and nothing reaches the helper; a new request asks again.
 {
   const asked = [];
@@ -344,4 +328,20 @@ console.log('hands tests: passed');
   assert.equal(asked.at(-1), 'Let Tiro see TextEdit for this request?', 'a new request asks again');
   assert.ok(calls().length > before);
   console.log('tier gate tests: passed');
+}
+
+fs.rmSync(dir, { recursive: true, force: true });
+console.log('hands tests: passed');
+
+// Live "where am I" line: app, window title and page, without query strings; '' when nothing is known.
+{
+  const { frontLine } = await import('../tools.mjs');
+  const l = frontLine({ app: 'Google Chrome', title: 'Inbox (3) - me@example.com - Gmail', url: 'https://mail.google.com/mail/u/0/?tab=rm&token=SECRET#inbox' }, 'Ken');
+  assert.match(l, /Right now Ken is in Google Chrome — "Inbox \(3\) - me@example.com - Gmail" \(mail\.google\.com\/mail\/u\/0\)/);
+  assert.match(l, /overrides any app or page from earlier/);
+  assert.ok(!/SECRET|tab=/.test(l), 'query string dropped');
+  assert.equal(frontLine({ app: 'Notes', url: 'file:///Users/x/secret.txt' }), '- Right now The user is in Notes. This was just checked and overrides any app or page from earlier messages; they can still ask about something elsewhere.');
+  assert.equal(frontLine({}), '');
+  assert.equal(frontLine(null), '');
+  console.log('front line tests: passed');
 }
