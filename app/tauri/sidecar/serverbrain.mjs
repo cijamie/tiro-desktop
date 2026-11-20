@@ -14,12 +14,15 @@ import { z } from 'zod';
 export const BRAINS = ['server', 'pc'];
 export const brainOf = (config) => (BRAINS.includes(config?.brain) ? config.brain : 'server');
 
-// The PC tools the server may use, and whether each acts (clicks, types, opens, writes, runs): the server refuses an
-// acting tool when email or the web were read in the same message. The rest only read or point.
+// The PC tools the server may use, and whether each acts (clicks, types, opens, writes, runs, saves): the server
+// refuses an acting tool when email or the web were read in the same message. The rest only read, point or show.
+// say, notify, remind and get_context are the server's own (desktools.mjs); the PC's agent never gets them.
+// Separately, every tier-2 tool asks Jamie first on the PC (safety.mjs TIERS; tools.mjs).
 export const PC_TOOLS = new Map([
   ['take_screenshot', false], ['read_window', false], ['list_windows', false], ['read_selection', false],
   ['draw', false], ['see_photo', false], ['list_files', false], ['search_files', false], ['read_file', false],
   ['open', true], ['act_in_app', true], ['write_file', true], ['run_command', true],
+  ['say', false], ['notify', false], ['get_context', false], ['remind', true],
 ]);
 export const PREFIX = 'pc_';
 const TAKEOVER = 'takeover';

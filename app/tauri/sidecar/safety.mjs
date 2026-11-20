@@ -491,6 +491,56 @@ export function checkNoticeLink(url, base) {
   return verdict(BLOCK, 'Only Tiro pages and Gmail open from a notification.');
 }
 
+// ---------- permission tiers for the PC's tools ----------
+// 1, free: the window in front (app and title), the highlighted text, Tiro's own state, and saying or showing
+//    something on this PC (say, notify, a reminder).
+// 2, ask first: seeing the screen or another app (a screenshot, reading a window), clicking or typing in an app, and
+//    opening an app, file or link. One Allow covers that app for the rest of the request (using an app covers looking
+//    at it too); a new request asks again.
+// 3, never: permanent deletes, purchases, OS / firewall / Tailscale changes, destructive commands. Those never get
+//    this far: classifyCommand and checkWrite refuse them, the hands helper refuses HANDS_OFF apps, and a risky click
+//    (delete, pay, send, sign out) still asks on its own every time.
+// A tool not listed here is the agent's own (memory, drawing, lists): not a PC tool, no tier.
+export const TIERS = Object.freeze({
+  get_context: 1, read_selection: 1, list_windows: 1, say: 1, notify: 1, remind: 1,
+  take_screenshot: 2, read_window: 2, act_in_app: 2, open: 2,
+});
+export const tierOf = (name) => TIERS[name] ?? null;
+const appWord = (t) => {
+  const s = String(t ?? '').trim();
+  if (!s || s === 'front') return { key: 'front', say: 'the window in front' };
+  if (s === 'screen') return { key: 'screen', say: 'your screen' };
+  if (s.startsWith('window:')) return { key: s.toLowerCase(), say: 'that window' };
+  return { key: s.toLowerCase().slice(0, 60), say: s.slice(0, 40) };
+};
+/** A tier-2 call → the Allow question, and the grant it gives for the rest of the request (kind|key). null: no ask. */
+export function tier2Ask(name, args = {}) {
+  if (tierOf(name) !== 2) return null;
+  if (name === 'take_screenshot' || name === 'read_window') {
+    const a = appWord(args.target ?? (name === 'take_screenshot' ? 'screen' : 'front'));
+    return { kind: 'look', key: a.key, question: `Let Tiro see ${a.say} for this request?` };
+  }
+  if (name === 'act_in_app') {
+    const a = appWord(args.target);
+    return { kind: 'act', key: a.key, question: `Let Tiro click and type in ${a.say} for this request?` };
+  }
+  // open: a link by its site, a file or folder by its name, an app by its name.
+  const t = String(args.target ?? '').trim();
+  let what = t.slice(0, 60), key = t.toLowerCase().slice(0, 200);
+  try { const u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(t) ? t : `https://${t}`); if (/^https?:$/.test(u.protocol) && /\./.test(u.hostname)) { what = u.hostname.replace(/^www\./, ''); key = u.hostname.toLowerCase(); } } catch { /* an app or a path */ }
+  if (/^[~/.]|^[a-z]:\\/i.test(t)) what = t.split(/[\\/]+/).filter(Boolean).at(-1) || t;
+  return { kind: 'open', key, question: `Let Tiro open ${what}${args.app ? ` in ${String(args.app).slice(0, 30)}` : ''}?` };
+}
+/** Grants for one request: has(ask) after a yes; using an app (act) covers looking at it too. */
+export function createGrants() {
+  const yes = new Set();
+  return {
+    has: (a) => yes.has(`${a.kind}|${a.key}`) || (a.kind === 'look' && yes.has(`act|${a.key}`)),
+    add: (a) => { yes.add(`${a.kind}|${a.key}`); },
+    clear: () => yes.clear(),
+  };
+}
+
 /** A yes from the user, typed or spoken. */
 export const isYes = (text) => /^\s*(y|yes|yeah|yep|yup|ok|okay|sure|go|go ahead|do it|run it|allow|confirm)\b/i.test(String(text ?? ''));
 

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { createWebFetchTool, createWebSearchTool, runSideWebSearch, runSideWebSearchViaClaudeCode } from '@kenkaiiii/ggcoder/web';
 import { z } from 'zod';
 import { parseSipsSize, readProblem, rematch, sameBounds, shotFits, shotMap, shotProblem, shotUnits, snapRect, toScreen } from './pointing.mjs';
-import { ASK, BLOCK, checkDrawAction, checkFetch, checkOpen, checkRead, checkWrite, classifyCommand, isRiskyClick, isYes, riskyKind } from './safety.mjs';
+import { ASK, BLOCK, checkDrawAction, checkFetch, checkOpen, checkRead, checkWrite, classifyCommand, createGrants, isRiskyClick, isYes, riskyKind, tier2Ask, tierOf } from './safety.mjs';
 import { CARDS, DrawArgs, LIMITS, checkDraw, createParts, createPhotos, describeParts, faviconFor, pickTextMatch, quizNote, resolveTargets } from './draw.mjs';
 import { plain } from './intro.mjs';
 import { linuxSession, seesPointer } from './platform.mjs';
@@ -582,7 +582,7 @@ export function createTools({ allowActions, ui, ask, openUrl, onCommitments, fir
     }));
     for (const b of beats) for (const m of b.marks) {
       if (m.kind === 'copy') { if (!(await toClipboard(m.text))) notes.push("Couldn't copy to the clipboard."); }
-      else if (m.kind === 'open') { await tools.find((x) => x.name === 'open').execute({ target: m.url }); }
+      else if (m.kind === 'open') { await ungated('open')({ target: m.url }); } // they clicked it: no Allow on top
       else if (m.kind === 'handoff') onHandoff(m.task || m.text || m.label || 'a task');
       else if (m.kind === 'type') {
         if (!HANDS) throw new Error('Typing into apps needs the Tiro app.');
@@ -770,7 +770,7 @@ export function createTools({ allowActions, ui, ask, openUrl, onCommitments, fir
           // (instant, and nothing can land in the wrong field) instead of clicking the bar and typing.
           const url = typedAddress(asked, steps);
           if (url) {
-            const r = await tools.find((x) => x.name === 'open').execute({ target: url, app: /^(front|browser)$/i.test(asked) ? undefined : asked });
+            const r = await ungated('open')({ target: url, app: /^(front|browser)$/i.test(asked) ? undefined : asked });
             return `${r} (went straight to the address instead of typing it)`;
           }
           // Stay on the exact window read for this request: an app can have several, and keystrokes must land in this one.
@@ -1037,6 +1037,31 @@ A drawing stays until the user clears it or the window changes; your next drawin
 
   // Tiro: the server's tools (tiro.mjs), and the highlighted text in the app in front.
   tools.push(...createTiroTools({ userName, front: () => frontNow() }));
+
+  // Tier 2 (safety.mjs TIERS): seeing the screen or another app, clicking or typing, opening something asks first,
+  // once per app per request, from whichever brain called it. Not skipped by "Skip Allow prompts": that setting is for
+  // file edits and commands, and these tiers never bend. A no ends the call; the model is told plainly.
+  const raw = new Map();
+  const grants = createGrants();
+  let grantTurn = -1;
+  for (const t of tools) {
+    if (tierOf(t.name) !== 2) continue;
+    const run = t.execute;
+    raw.set(t.name, run);
+    t.execute = async (args, ctx) => {
+      const a = tier2Ask(t.name, args ?? {});
+      if (a) {
+        if (grantTurn !== turn) { grants.clear(); grantTurn = turn; }
+        if (!grants.has(a)) {
+          const answer = await ask({ placeholder: a.question, choices: ['Allow', "Don't allow"] }, ctx?.signal);
+          if (!isYes(answer)) throw new Error(`${userName} said no (${a.question.replace(/\?$/, '')}), so I didn't. Don't try another way to do it.`);
+          grants.add(a);
+        }
+      }
+      return run(args, ctx);
+    };
+  }
+  function ungated(name) { return raw.get(name) ?? tools.find((x) => x.name === name).execute; }
 
   // What's in front, for the live state. Quick and never fails: '' if the helper is missing, slow or denied.
   async function whereNow() {

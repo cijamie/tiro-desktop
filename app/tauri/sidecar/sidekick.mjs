@@ -55,6 +55,7 @@ import { detailsText, explain } from './errors.mjs';
 import { aboutTiro } from './about.mjs';
 import { TERMINALS, readSelectionWin, tiroCall, tiroPrompt } from './tiro.mjs';
 import { handoffBody, handoffContext, isTiroWindow, route } from './walkaway.mjs';
+import { createDeskTools } from './desktools.mjs';
 import { brainOf, noteTurn, serverEvents, takeoverTool, tiroMemory } from './serverbrain.mjs';
 import { createToday } from './today.mjs';
 import { whatsNewOnStart } from './whatsnew.mjs';
@@ -805,6 +806,16 @@ function enqueue(text, { interrupt = false, image = null, note = '', byVoice = f
     .finally(() => { if (--queued === 0) maybeCompact(); });
   return running;
 }
+// The server's own PC tools (desktools.mjs, tier 1): say and show things here, a reminder here, the PC's context.
+const pcDesk = createDeskTools({
+  userName,
+  say: (text) => speakLine(text, 'happy'),
+  notify: (title, body) => { say(body ? `${title}: ${body}` : title, 'happy'); dash.notice({ title, body }); },
+  remind: ({ text, due, repeat }) => tools.find((t) => t.name === 'remember_commitment').execute({ text, due, kind: 'reminder', ...(repeat ? { repeat } : {}) }),
+  front: () => frontData(),
+  selection: () => (HANDS_OK ? readSelectionWin() : Promise.resolve(null)),
+  state: () => ({ busy, voice: VOICE_ON(), speaking: !!turnVoice }),
+});
 // The Walkaway: hand what Jamie is doing to Hermes on the server, with this PC's context (the window in front unless
 // it's Tiro's own, its highlighted text unless it's a terminal, what Tiro did lately, the last exchange). Hermes
 // finishes it in the background; the result follows Jamie to the phone and glasses as a notification.
@@ -1234,7 +1245,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     const forServer = `${sent}${frontNow ? `\n(${frontNow.replace(/^- /, '')})` : ''}${image ? `\n(Attached: the area of the screen I ${note ? 'marked' : 'selected'}.${note ? ` ${note}` : ''})` : ''}`;
     const source = onPc ? agentEvents(agent.prompt(content)) : serverEvents({
       message: forServer, images: image ? [`data:${image.mediaType ?? 'image/png'};base64,${image.data}`] : [], chat: tiroChat,
-      tools: [...tools, takeoverTool((task) => { takeoverTask = task; })], call: tiroCall, signal: controller.signal, localOk: !image,
+      tools: [...tools, ...pcDesk, takeoverTool((task) => { takeoverTask = task; })], call: tiroCall, signal: controller.signal, localOk: !image,
       allowActions: !!config.allowActions, log: (d) => logLine('server_turn', { turn, ...d }),
     });
     for await (const e of source) {

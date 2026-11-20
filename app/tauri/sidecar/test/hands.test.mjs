@@ -29,8 +29,10 @@ console.log(JSON.stringify(o));
 `);
 process.env.TIRO_HANDS = fake;
 const { createTools } = await import('../tools.mjs');
+// The tier-2 Allow ("Let Tiro …", safety.mjs tier2Ask) is answered yes here; every other question (a risky click) no.
+const allowTiers = async (o) => (/^Let Tiro /.test(o?.placeholder ?? '') ? 'Allow' : false);
 const noop = async () => {};
-const { tools } = createTools({ allowActions: () => true, ui: () => {}, ask: async () => false, openUrl: noop, onCommitments: noop, showList: noop, fmtWhen: String, commitmentsText: () => '', userName: 'Test' });
+const { tools } = createTools({ allowActions: () => true, ui: () => {}, ask: allowTiers, openUrl: noop, onCommitments: noop, showList: noop, fmtWhen: String, commitmentsText: () => '', userName: 'Test' });
 const tool = (n) => tools.find((t) => t.name === n);
 const calls = () => fs.readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 const ctx = { toolCallId: 't1' };
@@ -59,7 +61,7 @@ assert.equal(calls().find((c) => c[0] === 'capture').length, 4, 'no preview thum
 // "on" and "off". Never what is typed.
 {
   const seen = [];
-  const made = createTools({ allowActions: () => true, ui: (m) => { if (m.kind === 'hands') seen.push(m); }, ask: async () => false, openUrl: noop, onCommitments: noop, showList: noop, fmtWhen: String, commitmentsText: () => '', userName: 'Test' });
+  const made = createTools({ allowActions: () => true, ui: (m) => { if (m.kind === 'hands') seen.push(m); }, ask: allowTiers, openUrl: noop, onCommitments: noop, showList: noop, fmtWhen: String, commitmentsText: () => '', userName: 'Test' });
   await made.hands('act', JSON.stringify({ app: 'HopTest', steps: [{ do: 'click', id: 1 }, { do: 'key', key: 'cmd+a' }, { do: 'type', text: 'my secret words' }] }));
   assert.deepEqual(seen, [{ kind: 'hands', on: true }, { kind: 'hands', step: { bounds: [100, 200, 80, 24] } }, { kind: 'hands', borrow: true },
     { kind: 'hands', step: { bounds: [300, 400, 200, 30] } }, { kind: 'hands', on: false }]);
@@ -84,7 +86,7 @@ assert.match(opened, /no app called "NoSuchAppTiroTest"/, 'treated as a link ope
   const sent = [], spoken = [], other = [];
   let clicks = 0, hold = false;
   const made = createTools({
-    allowActions: () => true, ask: async () => false, openUrl: noop, onCommitments: noop, showList: noop, fmtWhen: String, commitmentsText: () => '', userName: 'Test',
+    allowActions: () => true, ask: allowTiers, openUrl: noop, onCommitments: noop, showList: noop, fmtWhen: String, commitmentsText: () => '', userName: 'Test',
     speak: (t) => { spoken.push(t); return true; },
     ui: (m) => {
       if (m.e?.type?.startsWith('ink_')) other.push(m.e);
@@ -210,7 +212,7 @@ assert.match(opened, /no app called "NoSuchAppTiroTest"/, 'treated as a link ope
 {
   fs.writeFileSync(log, '');
   const seen = [];
-  const t = createTools({ allowActions: () => true, ui: (m) => { if (m.kind === 'hands') seen.push({ on: m.on, acted: fs.readFileSync(log, 'utf8').includes('["act"') }); }, ask: async () => false, openUrl: noop, onCommitments: noop, showList: noop, fmtWhen: String, commitmentsText: () => '', userName: 'Test' }).tools;
+  const t = createTools({ allowActions: () => true, ui: (m) => { if (m.kind === 'hands') seen.push({ on: m.on, acted: fs.readFileSync(log, 'utf8').includes('["act"') }); }, ask: allowTiers, openUrl: noop, onCommitments: noop, showList: noop, fmtWhen: String, commitmentsText: () => '', userName: 'Test' }).tools;
   await t.find((x) => x.name === 'act_in_app').execute({ target: 'TextEdit', steps: [{ do: 'key', key: 'return' }] }, ctx);
   assert.deepEqual(seen, [{ on: true, acted: false }, { on: false, acted: true }], 'click-through on before acting, off after');
   seen.length = 0;
@@ -225,7 +227,7 @@ assert.match(opened, /no app called "NoSuchAppTiroTest"/, 'treated as a link ope
   const events = [], watching = [];
   let hold = false;
   const made = createTools({
-    allowActions: () => true, ask: async () => false, openUrl: noop, onCommitments: noop, showList: noop, fmtWhen: String, commitmentsText: () => '', userName: 'Test', speak: () => true,
+    allowActions: () => true, ask: allowTiers, openUrl: noop, onCommitments: noop, showList: noop, fmtWhen: String, commitmentsText: () => '', userName: 'Test', speak: () => true,
     watchClicks: (on) => watching.push(on),
     ui: (m) => {
       if (m.e?.type?.startsWith('ink_')) events.push(m.e.type);
@@ -301,6 +303,33 @@ assert.match(opened, /no app called "NoSuchAppTiroTest"/, 'treated as a link ope
   assert.equal(await gone(), '', 'a change after a missed first read still clears it');
   fs.rmSync(path.join(dir, 'front.json'));
 }
+// Tier 2 asks first: once per app per request; a no refuses and nothing reaches the helper; a new request asks again.
+{
+  const asked = [];
+  let answer = 'Allow';
+  const made = createTools({ allowActions: () => true, ui: () => {}, ask: async (o) => { asked.push(o.placeholder); return /^Let Tiro /.test(o.placeholder) ? answer : false; }, openUrl: noop, onCommitments: noop, showList: noop, fmtWhen: String, commitmentsText: () => '', userName: 'Sam' });
+  const t = (n) => made.tools.find((x) => x.name === n);
+  made.nextTurn();
+  const before = calls().length;
+  await t('take_screenshot').execute({ target: 'TextEdit' }, ctx);
+  await t('take_screenshot').execute({ target: 'TextEdit' }, ctx);
+  assert.deepEqual(asked, ['Let Tiro see TextEdit for this request?'], 'one ask per app per request');
+  await t('act_in_app').execute({ target: 'TextEdit', steps: [{ do: 'key', key: 'return' }] }, ctx);
+  await t('read_window').execute({ target: 'TextEdit' }, ctx);
+  assert.deepEqual(asked.slice(1), ['Let Tiro click and type in TextEdit for this request?'], 'using covers looking');
+  answer = "Don't allow";
+  const n = calls().length;
+  await assert.rejects(t('act_in_app').execute({ target: 'Notepad', steps: [{ do: 'key', key: 'return' }] }, ctx), /said no \(Let Tiro click and type in Notepad for this request\)/);
+  assert.equal(calls().length, n, 'a no never reaches the helper');
+  await assert.rejects(t('open').execute({ target: 'https://example.com' }, ctx), /said no/);
+  made.nextTurn();
+  answer = 'Allow';
+  await t('take_screenshot').execute({ target: 'TextEdit' }, ctx);
+  assert.equal(asked.at(-1), 'Let Tiro see TextEdit for this request?', 'a new request asks again');
+  assert.ok(calls().length > before);
+  console.log('tier gate tests: passed');
+}
+
 fs.rmSync(dir, { recursive: true, force: true });
 console.log('hands tests: passed');
 
@@ -316,4 +345,3 @@ console.log('hands tests: passed');
   assert.equal(frontLine(null), '');
   console.log('front line tests: passed');
 }
-
