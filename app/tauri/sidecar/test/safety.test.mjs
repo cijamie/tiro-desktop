@@ -434,3 +434,34 @@ console.log('safety loophole tests: passed');
   }
   console.log('checkNoticeLink tests: passed');
 }
+
+// Permission tiers: what's free, what asks first (once per app per request), and that nothing else is a PC tool.
+{
+  const { TIERS, tierOf, tier2Ask, createGrants } = await import('../safety.mjs');
+  for (const n of ['get_context', 'read_selection', 'list_windows', 'say', 'notify', 'remind']) assert.equal(tierOf(n), 1, `${n} is free`);
+  for (const n of ['take_screenshot', 'read_window', 'act_in_app', 'open']) assert.equal(tierOf(n), 2, `${n} asks first`);
+  for (const n of ['write_file', 'run_command', 'draw', 'remember_commitment', 'nope']) assert.equal(tierOf(n), null, `${n} has no tier (its own checks)`);
+  assert.ok(Object.isFrozen(TIERS));
+  assert.equal(tier2Ask('get_context', {}), null, 'tier 1 never asks');
+  assert.deepEqual(tier2Ask('take_screenshot', {}), { kind: 'look', key: 'screen', question: 'Let Tiro see your screen for this request?' });
+  assert.deepEqual(tier2Ask('take_screenshot', { target: 'Word' }), { kind: 'look', key: 'word', question: 'Let Tiro see Word for this request?' });
+  assert.deepEqual(tier2Ask('read_window', {}), { kind: 'look', key: 'front', question: 'Let Tiro see the window in front for this request?' });
+  assert.deepEqual(tier2Ask('act_in_app', { target: 'Notepad' }), { kind: 'act', key: 'notepad', question: 'Let Tiro click and type in Notepad for this request?' });
+  assert.deepEqual(tier2Ask('open', { target: 'https://www.bbc.co.uk/news' }), { kind: 'open', key: 'www.bbc.co.uk', question: 'Let Tiro open bbc.co.uk?' });
+  assert.equal(tier2Ask('open', { target: 'example.com/x' }).key, 'example.com');
+  assert.equal(tier2Ask('open', { target: 'Spotify' }).question, 'Let Tiro open Spotify?');
+  assert.equal(tier2Ask('open', { target: 'C:\\Users\\jamie\\Documents\\report.docx' }).question, 'Let Tiro open report.docx?');
+  assert.equal(tier2Ask('open', { target: 'https://x.example', app: 'Firefox' }).question, 'Let Tiro open x.example in Firefox?');
+  const g = createGrants();
+  const word = tier2Ask('act_in_app', { target: 'Word' });
+  assert.ok(!g.has(word));
+  g.add(word);
+  assert.ok(g.has(word), 'one yes covers the app for the request');
+  assert.ok(g.has(tier2Ask('take_screenshot', { target: 'word' })), 'using an app covers looking at it');
+  assert.ok(!g.has(tier2Ask('act_in_app', { target: 'Excel' })), 'another app asks again');
+  g.add(tier2Ask('take_screenshot', { target: 'Excel' }));
+  assert.ok(!g.has(tier2Ask('act_in_app', { target: 'Excel' })), 'looking never covers using');
+  g.clear();
+  assert.ok(!g.has(word), 'a new request asks again');
+  console.log('tier tests: passed');
+}

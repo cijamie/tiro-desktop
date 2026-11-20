@@ -286,6 +286,11 @@ export function createDashboard({ call, send, open: openUrl = () => {}, onComman
     stop,
     asked,
     agent,
+    /** A notice from Tiro on the server for this PC (desktools notify): a toast and a log line. */
+    notice({ title, body = '' }) {
+      if (open) out({ kind: 'toast', notice: { title: str(title, 160), body: str(body, 400), kind: 'pc', url: '' } });
+      addLines([{ t: now(), src: 'server', kind: 'notify', text: [str(title, 160), str(body, 240)].filter(Boolean).join(': ') }]);
+    },
     ask,
     askDone,
     get chat() { return chat; },
