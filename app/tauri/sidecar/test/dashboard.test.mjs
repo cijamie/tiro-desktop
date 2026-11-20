@@ -195,7 +195,7 @@ const never = () => new Promise(() => {}); // the event stream: stays open, send
 {
   const { readFileSync } = await import('node:fs');
   const side = readFileSync(new URL('../sidekick.mjs', import.meta.url), 'utf8');
-  assert.match(side, /function enqueue\([^)]*\) \{\n[^\n]*\n  const r = !takeover && !news && !image && !intro \? route\(text\)/);
+  assert.match(side, /function enqueue\([^)]*\) \{\r?\n[^\n]*\n  const r = !takeover && !news && !image && !intro \? route\(text\)/, 'routing comes first in enqueue (CRLF on Windows checkouts)');
   assert.match(side, /if \(msg\.kind === 'agent' && dash\.open\) dash\.agent\(msg\.e\);/);
   assert.match(side, /Array\.isArray\(opts\.choices\) && dash\.open\) dash\.ask\(/);
   assert.match(side, /answered\.then\(\(\) => dash\.askDone\(id\)\);/);
