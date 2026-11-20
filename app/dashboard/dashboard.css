@@ -124,3 +124,34 @@ main { min-width: 0; min-height: 0; overflow-y: auto; padding: 20px 28px 28px; }
   border-radius: 8px; background: var(--panel); font-size: 13px; z-index: 11; }
 .snack.bad { border-color: var(--bad); color: var(--bad); }
 @media (prefers-reduced-motion: reduce) { .toast, .toast.out, .dcard { animation: none; transition: none; } }
+
+/* ---------- Tiro Command (TiroDash's ask bar, in monospace) ---------- */
+.cmd { display: flex; align-items: center; gap: 10px; background: var(--raise); border: 1px solid var(--line2); border-radius: var(--r); padding: 4px 4px 4px 14px; margin-bottom: 14px; }
+.cmd:focus-within { border-color: var(--acc); }
+.cmd .pr { font: 600 15px/1 var(--mono); color: var(--acc); }
+.cmd input, .cmd textarea { flex: 1; min-width: 0; background: none; border: 0; outline: 0; padding: 10px 0; resize: none; max-height: 160px;
+  font: 14px/1.45 var(--mono); color: var(--text); }
+.cmd input::placeholder, .cmd textarea::placeholder { color: var(--muted); }
+.cmd .btn { flex: none; }
+.cmd input:focus-visible, .cmd textarea:focus-visible { outline: none; }
+.cmd-last { margin: -6px 0 14px; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); font-size: 14px; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 160px; overflow: auto; }
+.cmd-last .who { display: block; margin-bottom: 4px; }
+.hint { margin: 8px 0 0; font: 11px/1.4 var(--mono); color: var(--muted); }
+
+/* ---------- the conversation ---------- */
+.chat-panel { display: flex; flex-direction: column; height: calc(100vh - 150px); min-height: 360px; }
+.chat { list-style: none; margin: 0; padding: 0 4px 0 0; flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: 80%; padding: 10px 12px; border-radius: var(--r); border: 1px solid var(--line); background: var(--raise); overflow-wrap: anywhere; white-space: pre-wrap; }
+.msg.user { align-self: flex-end; background: var(--panel); border-color: var(--line2); font-family: var(--mono); font-size: 13px; }
+.msg.tiro { align-self: flex-start; }
+.msg .who { display: block; margin-bottom: 4px; }
+.msg.live .who::after { content: " …"; color: var(--acc); }
+.msg .err { white-space: normal; }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tool { font: 11px/1 var(--mono); padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--dim); }
+.tool.run { color: var(--acc); border-color: rgba(34, 211, 238, .45); } .tool.bad { color: var(--bad); }
+.chat .empty { color: var(--muted); }
+.asks { display: grid; gap: 8px; margin-top: 10px; }
+.askq { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--warn); border-radius: var(--r); background: var(--raise); }
+.askq p { flex: 1; min-width: 200px; margin: 0; overflow-wrap: anywhere; }
+.askq .lbl { color: var(--warn); }

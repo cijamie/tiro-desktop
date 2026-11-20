@@ -150,5 +150,57 @@ const never = () => new Promise(() => {}); // the event stream: stays open, send
   d.stop();
   assert.equal(d.open, false);
 }
+// Tiro Command: commands go to the pipeline, turns are mirrored, yes/no questions show as buttons.
+{
+  const cmds = [], answers = [], sent = [];
+  let news = 0;
+  const srv = fakeServer();
+  const call = async (method, route, body) => (route === '/chats/c1' ? { messages: [{ role: 'user', content: '[Thu 20 Nov 09:00] hi', t: '2026-11-20T09:00:00+09:00' }, { role: 'assistant', content: 'Hello!' }, { role: 'user', content: [{ type: 'image' }] }] } : srv.call(method, route, body));
+  const d = createDashboard({ call, send: (o) => sent.push(o), fetchImpl: never, pollMs: 1e9, chatId: () => 'c1',
+    onCommand: (t) => cmds.push(t), onAnswer: (id, v) => answers.push([id, v]), onNew: () => news++ });
+  d.handle({ type: 'dash_open' }); await tick();
+  assert.deepEqual(d.chat.map((m) => [m.role, m.text]), [['user', 'hi'], ['tiro', 'Hello!']], 'the shared conversation loads, text only, stamps off');
+  d.handle({ type: 'dash_cmd', text: '  /hermes check the deploy  ' });
+  d.handle({ type: 'dash_cmd', text: '   ' });
+  assert.deepEqual(cmds, ['/hermes check the deploy']);
+  d.asked('Add the table');
+  d.agent({ type: 'start' });
+  d.agent({ type: 'tool', id: 't1', anim: { label: 'looking at', detail: 'your screen' } });
+  d.agent({ type: 'text', text: 'Done, ' }); d.agent({ type: 'text', text: 'added it.' });
+  d.agent({ type: 'tool_end', id: 't1', isError: false });
+  d.agent({ type: 'done' });
+  const last = d.chat.at(-1);
+  assert.deepEqual([last.role, last.text, last.state, last.tools], ['tiro', 'Done, added it.', 'done', [{ id: 't1', label: 'looking at your screen', state: 'ok' }]]);
+  d.agent({ type: 'start' }); d.agent({ type: 'error', message: "Couldn't reach Tiro" });
+  assert.equal(d.chat.at(-1).state, 'bad'); assert.equal(d.chat.at(-1).error, "Couldn't reach Tiro");
+  // A yes/no from a PC tool: only its own choices, only while it's open.
+  d.ask({ id: 'a1', question: 'Open Word?', choices: ['Allow', "Don't allow"] });
+  d.ask({ id: 'a2', question: 'Paste your API key' });
+  assert.deepEqual(sent.filter((o) => o.msg.kind === 'chat').at(-1).msg.asks.map((q) => q.id), ['a1'], 'typed questions are never mirrored');
+  d.handle({ type: 'dash_answer', id: 'a1', value: 'Sure, and delete everything' });
+  d.handle({ type: 'dash_answer', id: 'zz', value: 'Allow' });
+  assert.deepEqual(answers, []);
+  d.handle({ type: 'dash_answer', id: 'a1', value: 'Allow' });
+  d.handle({ type: 'dash_answer', id: 'a1', value: 'Allow' });
+  assert.deepEqual(answers, [['a1', 'Allow']], 'answered once');
+  d.ask({ id: 'a3', question: 'Run it?', choices: ['Allow', "Don't allow"] });
+  d.askDone('a3');
+  assert.deepEqual(sent.filter((o) => o.msg.kind === 'chat').at(-1).msg.asks, [], 'answered in the overlay: gone here too');
+  d.handle({ type: 'dash_new' });
+  assert.equal(news, 1); assert.deepEqual(d.chat, []);
+  d.stop();
+}
+// The sidecar sends everything through these: enqueue routes /hermes and the Walkaway; turns and yes/no questions
+// are mirrored; an answer from the window closes the bubble.
+{
+  const { readFileSync } = await import('node:fs');
+  const side = readFileSync(new URL('../sidekick.mjs', import.meta.url), 'utf8');
+  assert.match(side, /function enqueue\([^)]*\) \{\r?\n[^\n]*\n  const r = !takeover && !news && !image && !intro \? route\(text\)/, 'routing comes first in enqueue (CRLF on Windows checkouts)');
+  assert.match(side, /if \(msg\.kind === 'agent' && dash\.open\) dash\.agent\(msg\.e\);/);
+  assert.match(side, /Array\.isArray\(opts\.choices\) && dash\.open\) dash\.ask\(/);
+  assert.match(side, /answered\.then\(\(\) => dash\.askDone\(id\)\);/);
+  assert.match(side, /onAnswer: \(id, value\) => \{ const r = pending\.get\(id\); if \(!r\) return; pending\.delete\(id\); ui\(\{ kind: 'cancel_ask', id \}\); r\(value\); \}/);
+  assert.match(side, /tiroCall\('POST', '\/handoff', body/);
+}
 console.log('dashboard tests passed');
 process.exit(0);
