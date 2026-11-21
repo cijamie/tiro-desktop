@@ -4,6 +4,8 @@
       "version": null,
       "date": "2026-11-20",
       "items": [
+        { "kind": "new", "title": "TiroDash: one window", "text": "The panel and the dashboard are one app now. Click the tray icon to open it." },
+        { "kind": "new", "title": "Sign in to your Tiro", "text": "One account for TiroDash, TiroWeb and your glasses. Approve a code in TiroWeb." },
         { "kind": "new", "title": "Server, Hermes, Forge pages", "text": "In the dashboard: admin buttons (as cards), Hermes's cap, drop files to convert." },
         { "kind": "new", "title": "See what Tiro read", "text": "A green box shows for a moment on what Tiro just looked at." }
       ]

@@ -6,10 +6,15 @@
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  const TAURI = window.__TAURI__?.core?.invoke;
+  // Embedded (TiroDash's frame, ?embed=1): no window of its own. Tauri lives in the parent page (same origin), TiroDash's
+  // rail picks the page, and Esc doesn't hide anything.
+  const EMBED = new URLSearchParams(location.search).has('embed') && window.parent !== window;
+  const host = (() => { try { return EMBED ? window.parent : null; } catch { return null; } })();
+  if (EMBED) document.documentElement.classList.add('embed');
+  const TAURI = window.__TAURI__?.core?.invoke ?? (() => { try { return host?.__TAURI__?.core?.invoke?.bind(host.__TAURI__.core); } catch { return undefined; } })();
   const invoke = TAURI ?? preview();
   const send = (msg) => invoke('sidecar_send', { msg }).catch(() => {});
-  const hide = () => invoke('panel_hide').catch(() => {});
+  const hide = () => {};
   // An action from the menu's list. away: it happens on the desktop, so the panel steps aside first.
   const act = (id, away = false) => { if (away) hide(); send({ type: 'menu', id }); };
 
@@ -906,6 +911,7 @@
     const changed = name !== tab;
     if (!changed && !focus) return;
     tab = name;
+    if (EMBED) { try { host?.__pcShown?.(name); } catch { /* not TiroDash */ } }
     if (name === 'today') act('today:open'); // fetched if it's more than a few minutes old
     disarm(); ui.key = null; ui.rec = null;
     for (const t of TABS) {
@@ -1014,7 +1020,9 @@
       note(m.ok ? 'Copied. Paste it into a new custom shortcut.' : "Couldn't copy it. Select the command and copy it instead.", !m.ok);
     }
   };
+  window.__embedShow = (name) => show(name);
   send({ type: 'panel_open' });
+  if (EMBED) { try { host?.__pcReady?.(); } catch { /* not TiroDash */ } }
   // The first show: the window was made hidden, so the switch-on is played here (main.rs's call may land
   // before this script has run).
   window.__panelOpen();

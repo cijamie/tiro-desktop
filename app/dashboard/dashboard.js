@@ -1,5 +1,8 @@
-// The dashboard window. Everything it shows comes from the sidecar (dashboard.mjs) as window.__dash(msg); everything
-// it does is a dash_* message back. Server text is only ever set with textContent. In a plain browser (no Tauri)
+// TiroDash, the desktop app's one window. TiroCloud's pages: everything they show comes from the sidecar
+// (dashboard.mjs) as window.__dash(msg); everything they do is a dash_* message back. The sign-in (account.mjs) is
+// acct_* messages and a { kind: 'account' } state. This PC and Settings are the old tray panel's pages
+// (panel/index.html?embed=1) in one frame: its messages come in as window.__pc(msg) and are handed to it, and the
+// rail tells it which page to show. Server text is only ever set with textContent. In a plain browser (no Tauri)
 // it runs on sample data, for checking the layout.
 (() => {
   const TAURI = window.__TAURI__?.core?.invoke;
@@ -21,28 +24,97 @@
   const hhmm = (t) => { const d = new Date(t); return Number.isNaN(+d) ? '' : d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); };
   const money = (v) => `$${(Number(v) || 0).toFixed(2)}`;
 
-  const S = { kpi: null, deck: [], deckErr: '', lines: [], notes: { items: [], unread: 0 }, live: null, page: 'overview', filter: 'all', armed: null, busy: false, chat: [], asks: [], admin: null, jobs: [], uploads: [] };
+  const S = { account: null, skipped: false, kpi: null, deck: [], deckErr: '', lines: [], notes: { items: [], unread: 0 }, live: null, page: 'overview', filter: 'all', armed: null, busy: false, chat: [], asks: [], admin: null, jobs: [], uploads: [] };
 
   // ---------------------------------------------------------------- rail
+  // [id, name, group]. 'pc' pages are the panel's, shown in the frame.
   const PAGES = [
-    ['overview', 'Overview'], ['chat', 'Chat'], ['approvals', 'Approvals'], ['server', 'Server'], ['hermes', 'Hermes'],
-    ['forge', 'Forge'], ['logs', 'Logs'], ['settings', 'Settings'],
+    ['overview', 'Overview', 'TiroCloud'], ['chat', 'Chat', 'TiroCloud'], ['approvals', 'Approvals', 'TiroCloud'],
+    ['server', 'Server', 'TiroCloud'], ['hermes', 'Hermes', 'TiroCloud'], ['forge', 'Forge', 'TiroCloud'], ['logs', 'Logs', 'TiroCloud'],
+    ['today', 'Today', 'This PC'], ['home', 'Home', 'This PC'], ['memory', 'Memory', 'This PC'],
+    ['account', 'Account', 'Settings'], ['model', 'Model', 'Settings'], ['appearance', 'Appearance', 'Settings'],
+    ['speaking', 'Speaking', 'Settings'], ['listening', 'Listening', 'Settings'], ['shortcuts', 'Shortcuts', 'Settings'],
+    ['routines', 'Routines', 'Settings'], ['general', 'General', 'Settings'], ['about', 'About', 'Settings'], ['whatsnew', "What's new", 'Settings'],
   ];
+  const PC = new Set(['today', 'home', 'memory', 'model', 'appearance', 'speaking', 'listening', 'shortcuts', 'routines', 'general', 'about', 'whatsnew']);
   const SOON = {};
   function rail() {
-    $('rail').replaceChildren(...PAGES.map(([id, name, soon]) => el('button', {
-      type: 'button', role: 'tab', 'aria-selected': String(S.page === id), id: `tab-${id}`, onclick: () => go(id),
-    }, name, id === 'approvals' && S.deck.length ? el('span', { class: 'n num', text: String(S.deck.length) }) : null, soon ? el('span', { class: 'soon', text: 'soon' }) : null)));
+    const kids = [];
+    let grp = '';
+    for (const [id, name, g] of PAGES) {
+      if (g !== grp) { grp = g; kids.push(el('p', { class: 'grp', text: g, 'aria-hidden': 'true' })); }
+      kids.push(el('button', {
+        type: 'button', role: 'tab', 'aria-selected': String(S.page === id), id: `tab-${id}`, onclick: () => go(id),
+      }, name, id === 'approvals' && S.deck.length ? el('span', { class: 'n num', text: String(S.deck.length) }) : null));
+    }
+    $('rail').replaceChildren(...kids);
   }
-  function go(id) {
+  // The frame with the panel's pages: what it should show, handed over once it has loaded.
+  const pcWin = () => { try { return $('pc').contentWindow; } catch { return null; } };
+  function pcShow(id) { const w = pcWin(); if (w?.__embedShow) w.__embedShow(id); else S.pcWant = id; }
+  $('pc').addEventListener('load', () => { if (S.pcWant) { pcShow(S.pcWant); S.pcWant = null; } });
+  function go(id, { fromPc = false } = {}) {
+    if (!PAGES.some(([p]) => p === id)) id = 'overview';
     S.page = id;
-    const page = SOON[id] ? 'soon' : id;
+    const page = PC.has(id) ? 'pc' : SOON[id] ? 'soon' : id;
     for (const s of document.querySelectorAll('.page')) s.hidden = s.id !== `page-${page}`;
     if (SOON[id]) { $('soonName').textContent = SOON[id][0]; $('soonText').textContent = SOON[id][1]; }
+    if (PC.has(id) && !fromPc) pcShow(id);
     if (id === 'notes') { send({ type: 'dash_seen' }); }
+    if (id === 'account') send({ type: 'acct_open' });
     rail(); render();
     $('main').scrollTop = 0;
   }
+  // The panel's messages (main.rs to_panel) go on to the frame; the panel says which page it opened itself
+  // (asked with nothing signed in: Model), so the rail follows.
+  window.__pc = (m) => { const w = pcWin(); if (w?.__panel) w.__panel(m); else if (m?.kind === 'state') S.pcState = m; };
+  window.__pcReady = () => { if (S.pcState) { pcWin()?.__panel?.(S.pcState); S.pcState = null; } };
+  window.__pcShown = (id) => { if (PC.has(id) && S.page !== id) go(id, { fromPc: true }); };
+
+  // ---------------------------------------------------------------- account and the sign-in gate
+  function account() {
+    const a = S.account, key = JSON.stringify([a, S.skipped, S.page]);
+    if (key === S.acctKey) return; // unchanged: leave the buttons (and the focus) alone
+    S.acctKey = key;
+    $('who').hidden = !a?.signedIn;
+    if (a?.signedIn) $('whoName').textContent = a.user?.name || a.user?.email || 'you';
+    const gateOn = !!a && !a.signedIn && !S.skipped;
+    $('gate').hidden = !gateOn;
+    document.body.classList.toggle('gated', gateOn);
+    if (gateOn) fill($('gateBody'), signInParts(a, true));
+    $('gateErr').hidden = !a?.error || !gateOn; $('gateErr').textContent = a?.error ?? '';
+    $('gateDev').textContent = a?.device ?? '';
+    if (S.page !== 'account') return;
+    $('acctDev').textContent = a?.device ?? '';
+    if (!a) return fill($('acctBox'), el('p', { class: 'note', text: '…' }));
+    if (a.signedIn) {
+      return fill($('acctBox'),
+        el('div', { class: 'acct' }, el('span', { class: 'nm', text: a.user?.name || 'Signed in' }), el('span', { class: 'em', text: a.user?.email ?? '' })),
+        el('p', { class: 'note', text: `This PC (${a.device}) talks to Tiro as this account, on or off Tailscale.` }),
+        el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => send({ type: 'acct_signout' }), disabled: a.busy }, 'Sign out')),
+        a.error ? el('p', { class: 'err', text: a.error }) : null);
+    }
+    fill($('acctBox'), el('p', { class: 'note', text: 'Not signed in. Tiro goes by this PC\'s Tailscale identity meanwhile, if it has one.' }), signInParts(a, false),
+      a.error ? el('p', { class: 'err', text: a.error }) : null);
+  }
+  function signInParts(a, big) {
+    if (a.pending) {
+      return [
+        el('p', { class: 'code num', text: a.pending.code, 'aria-label': `Code ${a.pending.code.split('').join(' ')}` }),
+        el('p', { class: 'wait', text: 'Waiting for you to approve it in TiroWeb…' }),
+        el('div', { class: 'btnrow' },
+          el('button', { class: `btn${big ? '' : ' ghost'}`, type: 'button', onclick: () => send({ type: 'acct_reopen' }) }, 'Open TiroWeb again'),
+          el('button', { class: 'btn ghost', type: 'button', onclick: () => send({ type: 'acct_cancel' }) }, 'Cancel')),
+      ];
+    }
+    return [
+      el('button', { class: 'btn', type: 'button', disabled: a.busy, onclick: () => send({ type: 'acct_start' }) }, a.busy ? 'Starting…' : 'Sign in with Tiro'),
+      a.tailscale ? el('button', { class: 'btn ghost', type: 'button', disabled: a.busy, onclick: () => send({ type: 'acct_tailscale' }) }, `Continue as ${a.tailscale.name}`) : null,
+      a.tailscale ? el('p', { class: 'note', text: 'Tailscale already knows this PC is yours, so no code is needed.' }) : null,
+    ];
+  }
+  $('who').addEventListener('click', () => go('account'));
+  $('gateSkip').addEventListener('click', () => { S.skipped = true; account(); });
 
   // ---------------------------------------------------------------- KPI strip
   function strip() {
@@ -222,6 +294,7 @@
 
   // ---------------------------------------------------------------- render
   function render() {
+    account();
     strip(); rail();
     if (S.page === 'overview') { filters('filters-o'); log('log-o', 80); deck($('deck-o')); notes('notes-o', 6); lastExchange(); }
     else if (S.page === 'chat') chatPage();
@@ -261,19 +334,32 @@
     else if (m.kind === 'forge') S.jobs = m.jobs ?? [];
     else if (m.kind === 'uploads') { S.uploads = m.items ?? []; if (S.uploads.length && S.page !== 'forge' && S.uploads.some((u) => u.state === 'waiting')) go('forge'); }
     else if (m.kind === 'drag') document.body.classList.toggle('dragging', !!m.on);
+    else if (m.kind === 'account') { const was = S.account?.signedIn; S.account = m.account ?? null; if (S.account?.signedIn && was === false) snack(`Signed in as ${S.account.user?.name || S.account.user?.email || 'you'}.`); }
     render();
   };
 
   $('bell').addEventListener('click', () => go('notes'));
   $('seeAll').addEventListener('click', () => go('notes'));
-  $('openPanel').addEventListener('click', () => send({ type: 'dash_panel' }));
   $('openWeb').addEventListener('click', () => send({ type: 'dash_link', url: '/' }));
   addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r') { e.preventDefault(); send({ type: 'dash_refresh' }); } });
   go('overview');
   send({ type: 'dash_open' });
+  send({ type: 'acct_open' });
 
   // ---------------------------------------------------------------- browser preview (sample data)
   function preview(msg) {
+    if (msg.type?.startsWith('acct_')) {
+      const q = new URLSearchParams(location.search), me = { id: 'u1', name: 'Jamie', email: 'jamie@example.com', owner: true };
+      preview.acct ??= q.has('signedout') ? { signedIn: false, user: null, device: 'AEROBOOK', busy: false, error: '', pending: null, tailscale: q.has('ts') ? { name: 'Jamie', email: me.email } : null }
+        : { signedIn: true, user: me, device: 'AEROBOOK', busy: false, error: '', pending: null, tailscale: null };
+      const a = preview.acct;
+      if (msg.type === 'acct_start') { a.pending = { code: 'K7PQ-M2XD', url: '', until: Date.now() + 6e5 }; setTimeout(() => { a.pending = null; a.signedIn = true; a.user = me; window.__dash({ kind: 'account', account: { ...a } }); }, q.has('wait') ? 6e8 : 2500); }
+      if (msg.type === 'acct_tailscale') { a.signedIn = true; a.user = me; a.tailscale = null; }
+      if (msg.type === 'acct_cancel') a.pending = null;
+      if (msg.type === 'acct_signout') { a.signedIn = false; a.user = null; }
+      setTimeout(() => window.__dash({ kind: 'account', account: { ...a } }), 60);
+      return;
+    }
     if (msg.type === 'dash_cmd') {
       preview.chat = (preview.chat ?? []).concat({ role: 'user', text: msg.text, tools: [], state: 'done' }, { role: 'tiro', text: '', tools: [{ id: 't1', label: 'looking at your screen', state: 'run' }], state: 'live' });
       window.__dash({ kind: 'chat', items: preview.chat, asks: [{ id: 'a1', question: 'Open Word to edit "Lab report.docx"?', choices: ['Allow', "Don't allow"] }] });

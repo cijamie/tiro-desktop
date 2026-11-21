@@ -16,7 +16,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { SAFE, checkNoticeLink, checkRead, checkUrl } from './safety.mjs';
-import { tiroUrl } from './tiro.mjs';
+import { tiroAuth, tiroUrl } from './tiro.mjs';
 
 export const NEEDS_TAP = new Set(['mail_send', 'mail_trash', 'event_delete', 'drive_trash', 'doc_edit', 'server_reboot']);
 // What each card is, as TiroDash names it (brain/app/static/next/app.js KIND).
@@ -151,7 +151,7 @@ export function createDashboard({ call, send, open: openUrl = () => {}, onComman
     const ctl = new AbortController();
     sse = ctl;
     const headers = { accept: 'text/event-stream' };
-    if (env.TIRO_TOKEN) headers.authorization = `Bearer ${env.TIRO_TOKEN}`;
+    if (tiroAuth(env)) headers.authorization = tiroAuth(env);
     try {
       const r = await fetchImpl(`${tiroUrl(env)}/events`, { headers, signal: ctl.signal });
       if (!r.ok || !r.body) throw new Error(`events ${r.status}`);
@@ -278,7 +278,7 @@ export function createDashboard({ call, send, open: openUrl = () => {}, onComman
         const n = Math.min(PIECE, st.size - at), buf = Buffer.alloc(n);
         await fh.read(buf, 0, n, at);
         const headers = { 'content-type': 'application/octet-stream', 'x-tiro': '1' };
-        if (env.TIRO_TOKEN) headers.authorization = `Bearer ${env.TIRO_TOKEN}`;
+        if (tiroAuth(env)) headers.authorization = tiroAuth(env);
         const r = await fetchImpl(`${tiroUrl(env)}/drive/uploads/${encodeURIComponent(up.id)}?offset=${at}`, { method: 'PUT', headers, body: buf, signal: AbortSignal.timeout(120_000) });
         const j = await r.json().catch(() => ({}));
         if (r.status === 409 && Number.isFinite(j.received)) { at = j.received; continue; }

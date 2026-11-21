@@ -16,10 +16,11 @@ releases (a signed update feed).
 
 | Part | Where | What it does |
 | ---- | ----- | ------------ |
-| Shell | `app/tauri/src-tauri` (Rust, Tauri 2) | tray icon, overlay windows, panel, setup guide, shortcuts, updates |
+| Shell | `app/tauri/src-tauri` (Rust, Tauri 2) | tray icon, overlay windows, TiroDash, setup guide, shortcuts, updates |
 | Sidecar | `app/tauri/sidecar` (Node) | the agent: model, tools, memory, voice, Tiro server tools (`tiro.mjs`) |
 | Overlay | `app/overlay` (browser JS) | the character, bubbles, cards, drawings and the type-to-ask bar |
-| Panel and setup guide | `app/panel`, `app/onboarding` | settings and first-run setup |
+| TiroDash | `app/dashboard` (+ `app/panel` in its frame) | the one window: TiroCloud, This PC, Settings, Tiro sign-in |
+| Setup guide | `app/onboarding` | first-run setup |
 | Voice helper | `app/tauri/src-tauri/voice-win` (Rust) | talk keys, microphone and speech-to-text (Parakeet, on the PC) |
 | Hands helper | `app/tauri/src-tauri/hands-win` (Rust) | windows, screenshots, UI Automation and OCR, typing and clicking |
 

@@ -30,23 +30,9 @@ static SIDEKICK_OVERLAY: Mutex<Option<String>> = Mutex::new(None);
 /// The setup guide is open: voice events go to it (for the "try it" test) instead of the agent.
 static ONBOARDING: AtomicBool = AtomicBool::new(false);
 const ONBOARDING_LABEL: &str = "onboarding";
-const PANEL_LABEL: &str = "panel";
-/// The dashboard: a real window (title bar, taskbar button), opened from the tray menu.
+/// TiroDash: the one window (title bar, taskbar button), opened by the tray icon. It holds TiroCloud's pages and,
+/// in a frame, the old tray panel's (Today, Home, Memory and the settings), which still talk as `panel` messages.
 const DASHBOARD_LABEL: &str = "dashboard";
-/// When the panel last hid because it lost focus: a click on the icon that caused it mustn't reopen it.
-static PANEL_BLURRED: Mutex<Option<Instant>> = Mutex::new(None);
-/// Counts opens, so a close that's still playing its animation can tell it was opened again and stay up.
-static PANEL_GEN: AtomicUsize = AtomicUsize::new(0);
-/// The close animation is playing (the window is still on screen, but on its way out).
-static PANEL_CLOSING: AtomicBool = AtomicBool::new(false);
-/// How long the panel's close animation runs (panel.css: --shut).
-const PANEL_SHUT_MS: u64 = 150;
-/// The panel sits above the icon (a taskbar at the bottom), so it opens from its bottom edge.
-static PANEL_FROM_BOTTOM: AtomicBool = AtomicBool::new(false);
-
-fn panel_open_js() -> String {
-    format!("window.__panelOpen&&__panelOpen({})", PANEL_FROM_BOTTOM.load(Ordering::SeqCst))
-}
 
 struct Sidecar(Mutex<Option<ChildStdin>>);
 struct Roster(Mutex<Vec<String>>);
@@ -108,9 +94,10 @@ fn to_overlays(app: &AppHandle, msg: &Value) {
     }
 }
 
+/// The panel's pages live inside TiroDash now (dashboard.js hands these on to its frame).
 fn to_panel(app: &AppHandle, msg: &Value) {
-    if let Some(w) = app.get_webview_window(PANEL_LABEL) {
-        let _ = w.eval(format!("window.__panel&&__panel({msg})"));
+    if let Some(w) = app.get_webview_window(DASHBOARD_LABEL) {
+        let _ = w.eval(format!("window.__pc&&__pc({msg})"));
     }
 }
 
@@ -120,7 +107,7 @@ fn to_dashboard(app: &AppHandle, msg: &Value) {
     }
 }
 
-/// Opens the dashboard, or brings it to the front. It tells the sidecar when it closes, so the sidecar stops
+/// Opens TiroDash, or brings it to the front. It tells the sidecar when it closes, so the sidecar stops
 /// asking the server for its numbers and closes the live stream.
 fn show_dashboard(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(DASHBOARD_LABEL) {
@@ -131,7 +118,7 @@ fn show_dashboard(app: &AppHandle) {
         return;
     }
     let b = WebviewWindowBuilder::new(app, DASHBOARD_LABEL, WebviewUrl::App("dashboard/index.html".into()))
-        .title("Tiro")
+        .title("TiroDash")
         .inner_size(1180.0, 760.0)
         .min_inner_size(760.0, 520.0)
         .center()
@@ -142,7 +129,10 @@ fn show_dashboard(app: &AppHandle) {
         Ok(w) => {
             let app2 = app.clone();
             w.on_window_event(move |e| match e {
-                tauri::WindowEvent::Destroyed => to_sidecar(&app2, &json!({ "type": "dash_closed" })),
+                tauri::WindowEvent::Destroyed => {
+                    to_sidecar(&app2, &json!({ "type": "dash_closed" }));
+                    to_sidecar(&app2, &json!({ "type": "panel_closed", "why": "window" }));
+                }
                 // Files dropped on the window go to the sidecar as paths (it checks and uploads them for Tiro Forge);
                 // the page only learns that something is being dragged over it, to light the drop zone.
                 tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Enter { .. }) => to_dashboard(&app2, &json!({ "kind": "drag", "on": true })),
@@ -310,9 +300,9 @@ fn diagnostics(app: &AppHandle) -> Value {
         let (p, z) = (r.position.to_physical::<f64>(1.0), r.size.to_physical::<f64>(1.0));
         json!([p.x, p.y, z.width, z.height])
     };
-    let panel = app.get_webview_window(PANEL_LABEL).map(|w| {
+    let panel = app.get_webview_window(DASHBOARD_LABEL).map(|w| {
         json!({ "visible": w.is_visible().ok(), "at": w.outer_position().ok().map(|p| [p.x, p.y]),
-                "size": w.outer_size().ok().map(|s| [s.width, s.height]), "opens_upward": PANEL_FROM_BOTTOM.load(Ordering::SeqCst) })
+                "size": w.outer_size().ok().map(|s| [s.width, s.height]) })
     });
     let perms = helper_perms(&["--perms"]);
     // Every microphone, the default one and the format it records in (voice-win --devices).
@@ -411,12 +401,6 @@ fn relaunch(app: AppHandle) {
     app.restart();
 }
 
-/// The panel's Esc, or an action that happens somewhere else (asking, the setup guide).
-#[tauri::command]
-fn panel_hide(app: AppHandle) {
-    hide_panel(&app, "panel");
-}
-
 /// Closes the guide without the drop-in (the chat-only guide is done).
 #[tauri::command]
 fn guide_close(app: AppHandle) {
@@ -503,159 +487,6 @@ fn tray_image() -> tauri::image::Image<'static> {
         }
     }
     tauri::image::Image::new_owned(rgba, n as u32, n as u32)
-}
-
-// ---------- panel ----------
-
-// Wide enough for the sidebar beside a page as roomy as the old one-column panel.
-const PANEL_W: f64 = 560.0;
-const PANEL_H: f64 = 560.0;
-
-/// Plays the panel's close animation, then hides it (unless it was opened again meanwhile). why: what closed it,
-/// for the log (blur, icon, esc, panel).
-pub(crate) fn hide_panel(app: &AppHandle, why: &'static str) {
-    let Some(w) = app.get_webview_window(PANEL_LABEL) else { return };
-    if !w.is_visible().unwrap_or(false) || PANEL_CLOSING.swap(true, Ordering::SeqCst) {
-        return;
-    }
-    let gen = PANEL_GEN.load(Ordering::SeqCst);
-    let _ = w.eval("window.__panelShut&&__panelShut()");
-    let app = app.clone();
-    thread::spawn(move || {
-        // A little past the animation, so its last frame has drawn before the window goes.
-        thread::sleep(Duration::from_millis(PANEL_SHUT_MS + 40));
-        if PANEL_GEN.load(Ordering::SeqCst) != gen {
-            return;
-        }
-        PANEL_CLOSING.store(false, Ordering::SeqCst);
-        if let Some(w) = app.get_webview_window(PANEL_LABEL) {
-            let _ = w.hide();
-        }
-        to_sidecar(&app, &json!({ "type": "panel_closed", "why": why }));
-    });
-}
-
-/// Opens the panel by the icon (or closes it if it's open). `toggle`: false from the menu's Open Panel, which
-/// only opens. The icon's rect comes with a click; from the menu, it's asked for.
-fn show_panel(app: &AppHandle, rect: Option<tauri::Rect>, toggle: bool) {
-    let existing = app.get_webview_window(PANEL_LABEL);
-    if let Some(w) = &existing {
-        if w.is_visible().unwrap_or(false) {
-            // On its way out: a toggle lets it go, an open brings it back.
-            let closing = PANEL_CLOSING.load(Ordering::SeqCst);
-            if toggle || !closing {
-                if toggle && !closing {
-                    hide_panel(app, "icon");
-                }
-                return;
-            }
-            PANEL_GEN.fetch_add(1, Ordering::SeqCst);
-            PANEL_CLOSING.store(false, Ordering::SeqCst);
-            let _ = w.eval(panel_open_js());
-            let _ = w.set_focus();
-            return;
-        }
-    }
-    // The click that took focus away (and so hid it) is the same one asking to toggle: leave it closed.
-    if toggle && PANEL_BLURRED.lock().unwrap().is_some_and(|t| t.elapsed() < Duration::from_millis(400)) {
-        return;
-    }
-    let w = match existing {
-        Some(w) => w,
-        None => {
-            let b = WebviewWindowBuilder::new(app, PANEL_LABEL, WebviewUrl::App("panel/index.html".into()))
-                .title("Tiro")
-                .inner_size(PANEL_W, PANEL_H)
-                .resizable(false)
-                .maximizable(false)
-                .minimizable(false)
-                .decorations(false)
-                // macOS: the first click acts even while another app is active, instead of only activating Tiro.
-                .accept_first_mouse(true)
-                .always_on_top(true)
-                .skip_taskbar(true)
-                .visible_on_all_workspaces(true)
-                // Transparent, so it opens and closes as its own shape (panel.css draws the frame).
-                // No native shadow: macOS works it out from the drawn pixels and would trail the animation.
-                .transparent(true)
-                .shadow(false)
-                .visible(false);
-            match b.build() {
-                Ok(w) => {
-                    let app2 = app.clone();
-                    w.on_window_event(move |e| {
-                        if let tauri::WindowEvent::Focused(false) = e {
-                            *PANEL_BLURRED.lock().unwrap() = Some(Instant::now());
-                            hide_panel(&app2, "blur");
-                        }
-                    });
-                    w
-                }
-                Err(e) => {
-                    eprintln!("panel failed to open: {e}");
-                    return;
-                }
-            }
-        }
-    };
-    let rect = rect.or_else(|| app.tray_by_id("tiro").and_then(|t| t.rect().ok().flatten()));
-    PANEL_FROM_BOTTOM.store(place_panel(app, &w, rect), Ordering::SeqCst);
-    PANEL_GEN.fetch_add(1, Ordering::SeqCst);
-    PANEL_CLOSING.store(false, Ordering::SeqCst);
-    let _ = w.eval(panel_open_js());
-    let _ = w.show();
-    let _ = w.set_focus();
-    activate_window(app, PANEL_LABEL);
-    to_sidecar(app, &json!({ "type": "panel_open" }));
-}
-
-/// Right under the icon in the menu bar (macOS, or a taskbar at the top), right above it in a taskbar at the
-/// bottom (Windows), kept inside the screen's usable area. True when it's above the icon.
-fn place_panel(app: &AppHandle, w: &WebviewWindow, rect: Option<tauri::Rect>) -> bool {
-    let icon = rect.map(|r| {
-        let p = r.position.to_physical::<f64>(1.0);
-        let z = r.size.to_physical::<f64>(1.0);
-        (p.x, p.y, z.width, z.height)
-    });
-    // The icon is in pixels of its own screen; the lookup takes pixels on Windows and points on macOS.
-    let k = tray_scale(app);
-    let monitor = match icon {
-        Some((x, y, iw, ih)) => app.monitor_from_point((x + iw / 2.0) / k, (y + ih / 2.0) / k).ok().flatten(),
-        None => None,
-    }
-    .or_else(|| app.primary_monitor().ok().flatten());
-    let Some(m) = monitor else { return false };
-    let s = m.scale_factor();
-    let wa = m.work_area();
-    let (ax, ay, aw, ah) = (wa.position.x as f64, wa.position.y as f64, wa.size.width as f64, wa.size.height as f64);
-    let gap = 6.0 * s;
-    let margin = 8.0 * s;
-    let h = (PANEL_H * s).min(ah - 2.0 * margin);
-    let pw = PANEL_W * s;
-    set_panel_size(w, pw, h, s);
-    let (cx, y, above) = match icon {
-        Some((x, y, iw, ih)) if y + ih / 2.0 < ay + ah / 2.0 => (x + iw / 2.0, (y + ih).max(ay) + gap, false),
-        Some((x, y, iw, _)) => (x + iw / 2.0, y.min(ay + ah) - h - gap, true),
-        None => (ax + aw - pw / 2.0 - margin, ay + gap, false),
-    };
-    let x = (cx - pw / 2.0).clamp(ax + margin, (ax + aw - pw - margin).max(ax + margin));
-    let y = y.clamp(ay + margin.min(gap), (ay + ah - h - margin).max(ay));
-    set_panel_position(w, x, y, s);
-    above
-}
-
-// macOS converts physical sizes with the scale of the screen the window is on now, not the one it's going to,
-// so with mixed 1x/2x screens the panel came out half (or twice) its size. Its global space is in points.
-// The scale of the screen the menu bar icon is on (1 when it can't be read). Looked up in pixels, an icon on a
-// Retina screen matched the screen to its right, or none at all.
-fn tray_scale(_app: &AppHandle) -> f64 {
-    1.0
-}
-fn set_panel_size(w: &WebviewWindow, pw: f64, h: f64, _s: f64) {
-    let _ = w.set_size(tauri::PhysicalSize::new(pw.round() as u32, h.round() as u32));
-}
-fn set_panel_position(w: &WebviewWindow, x: f64, y: f64, _s: f64) {
-    let _ = w.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
 }
 
 // ---------- setup guide window ----------
@@ -1223,7 +1054,7 @@ fn handle_sidecar(app: &AppHandle, msg: Value) {
                 to_panel(app, m);
             }
         }
-        Some("panel_show") => show_panel(app, None, false),
+        Some("panel_show") => show_dashboard(app),
         Some("dash") => {
             if let Some(m) = msg.get("msg") {
                 to_dashboard(app, m);
@@ -1332,12 +1163,12 @@ fn cli_action(args: &[String]) -> Option<&'static str> {
 fn second_launch(app: &AppHandle, args: &[String]) {
     match cli_action(args) {
         Some("summon") => to_overlays(app, &json!({ "kind": "summon" })),
-        Some("panel") => show_panel(app, None, false),
+        Some("panel") => show_dashboard(app),
         // The sidecar's to do: it knows whether voice is on and ready, and owns the ask bubble and the list.
         Some(action) => to_sidecar(app, &json!({ "type": "cli", "action": action })),
         None => {
             to_overlays(app, &json!({ "kind": "summon" }));
-            show_panel(app, None, false);
+            show_dashboard(app);
         }
     }
 }
@@ -1356,7 +1187,7 @@ fn main() {
         .manage(TalkChord(Mutex::new(vec!["control".into(), "option".into()])))
         .manage(VoiceModel(Mutex::new(None)))
         .manage(PermGuide(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![buddy, ink_wait, set_hot, set_hit_rects, sidecar_send, set_typing, perm_status, perm_request, perm_guide, screen_check, open_settings, onboarding_finish, guide_close, panel_hide, esc_watch, relaunch, focus_guide, guide_aside, drag_window])
+        .invoke_handler(tauri::generate_handler![buddy, ink_wait, set_hot, set_hit_rects, sidecar_send, set_typing, perm_status, perm_request, perm_guide, screen_check, open_settings, onboarding_finish, guide_close, esc_watch, relaunch, focus_guide, guide_aside, drag_window])
         .on_menu_event(|app, e| match e.id.as_ref() {
             "quit" => app.exit(0),
             "restart" => spawn_sidecar(app),
@@ -1367,14 +1198,14 @@ fn main() {
             let starting = MenuItem::with_id(app, "status", "Starting Tiro…", false, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Tiro", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&starting, &quit])?;
-            // Left click opens the panel; right click shows the short menu.
+            // Left click opens TiroDash; right click shows the short menu.
             let mut tray = TrayIconBuilder::with_id("tiro")
                 .tooltip("Tiro")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, e| {
-                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, rect, .. } = e {
-                        show_panel(tray.app_handle(), Some(rect), true);
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
+                        show_dashboard(tray.app_handle());
                     }
                 });
             if let Some(icon) = app.default_window_icon() {

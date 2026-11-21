@@ -321,3 +321,14 @@ html, body { height: 100%; background: transparent; }
 .ncat::before { content: "[ "; } .ncat::after { content: " ]"; }
 #todo-add { width: 100%; margin-top: 6px; box-sizing: border-box; }
 .empty.bad { color: var(--bad); }
+
+/* ---------- embedded in TiroDash (?embed=1): TiroDash's rail picks the page, so no sidebar, frame or open/close
+   animation of its own; the pages get a readable width in the bigger window. ---------- */
+.embed, .embed body { background: var(--bg); }
+.embed .frame { border: 0; border-radius: 0; opacity: 1; animation: none; }
+.embed .frame.shut, .embed .frame.shutting { opacity: 1; }
+.embed .split { grid-template-columns: minmax(0, 1fr); }
+.embed .side { display: none; }
+.embed .head, .embed .body { width: 100%; max-width: 760px; margin-inline: auto; }
+.embed .body { padding-inline: 28px; }
+.embed .head { padding-inline: 12px 28px; }
