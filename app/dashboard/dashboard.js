@@ -38,10 +38,14 @@
   ];
   const PC = new Set(['today', 'home', 'memory', 'model', 'appearance', 'speaking', 'listening', 'shortcuts', 'routines', 'general', 'about', 'whatsnew']);
   const SOON = {};
+  // The server's own pages: only the owner's account sees them (the server refuses them for anyone else anyway).
+  const OWNER_ONLY = new Set(['server', 'hermes']);
+  const notOwner = () => !!S.account?.signedIn && S.account.user?.owner === false;
   function rail() {
     const kids = [];
     let grp = '';
     for (const [id, name, g] of PAGES) {
+      if (OWNER_ONLY.has(id) && notOwner()) continue;
       if (g !== grp) { grp = g; kids.push(el('p', { class: 'grp', text: g, 'aria-hidden': 'true' })); }
       kids.push(el('button', {
         type: 'button', role: 'tab', 'aria-selected': String(S.page === id), id: `tab-${id}`, onclick: () => go(id),
@@ -54,7 +58,7 @@
   function pcShow(id) { const w = pcWin(); if (w?.__embedShow) w.__embedShow(id); else S.pcWant = id; }
   $('pc').addEventListener('load', () => { if (S.pcWant) { pcShow(S.pcWant); S.pcWant = null; } });
   function go(id, { fromPc = false } = {}) {
-    if (!PAGES.some(([p]) => p === id)) id = 'overview';
+    if (!PAGES.some(([p]) => p === id) || (OWNER_ONLY.has(id) && notOwner())) id = 'overview';
     S.page = id;
     const page = PC.has(id) ? 'pc' : SOON[id] ? 'soon' : id;
     for (const s of document.querySelectorAll('.page')) s.hidden = s.id !== `page-${page}`;
@@ -334,7 +338,7 @@
     else if (m.kind === 'forge') S.jobs = m.jobs ?? [];
     else if (m.kind === 'uploads') { S.uploads = m.items ?? []; if (S.uploads.length && S.page !== 'forge' && S.uploads.some((u) => u.state === 'waiting')) go('forge'); }
     else if (m.kind === 'drag') document.body.classList.toggle('dragging', !!m.on);
-    else if (m.kind === 'account') { const was = S.account?.signedIn; S.account = m.account ?? null; if (S.account?.signedIn && was === false) snack(`Signed in as ${S.account.user?.name || S.account.user?.email || 'you'}.`); }
+    else if (m.kind === 'account') { const was = S.account?.signedIn; S.account = m.account ?? null; if (OWNER_ONLY.has(S.page) && notOwner()) go('overview'); if (S.account?.signedIn && was === false) snack(`Signed in as ${S.account.user?.name || S.account.user?.email || 'you'}.`); }
     render();
   };
 

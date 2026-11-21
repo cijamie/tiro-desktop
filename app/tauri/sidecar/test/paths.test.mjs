@@ -5,7 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 
 process.env.TIRO_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'tiro-paths-data-'));
-const { migrateFromRoamies, MIGRATED, CONFIG_PATH, DATA_DIR } = await import('../paths.mjs');
+const { migrateFromRoamies, MIGRATED, CONFIG_PATH, DATA_DIR, ensureAuthDir } = await import('../paths.mjs');
+{
+  // A fresh Windows account has no ~/.gg: it's made, so the first key can be saved (E30 ENOENT on auth.json.lock).
+  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), 'tiro-paths-fresh-'));
+  assert.equal(ensureAuthDir(fresh), path.join(fresh, '.gg'));
+  assert.ok(fs.statSync(path.join(fresh, '.gg')).isDirectory());
+  ensureAuthDir(fresh); // already there: fine
+  fs.writeFileSync(path.join(fresh, '.gg', 'auth.json.lock'), '1');
+}
 assert.deepEqual(MIGRATED, [], 'a test data folder never migrates anything');
 assert.equal(CONFIG_PATH, path.join(process.env.TIRO_DATA_DIR, 'sidekick.json'));
 assert.equal(DATA_DIR, path.join(process.env.TIRO_DATA_DIR, 'sidekick'));

@@ -22,6 +22,15 @@ export const dataDir = () => (process.env.TIRO_DATA_DIR ? path.join(process.env.
 export const agentsRoot = () => (process.env.TIRO_DATA_DIR ? path.join(process.env.TIRO_DATA_DIR, 'Tiro') : path.join(os.homedir(), 'Tiro'));
 export const voiceRoot = (env = process.env) => (env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, 'Tiro') : DATA_DIR);
 
+/** The sign-in folder (~/.gg) for the gg framework's auth.json. It never makes the folder itself, and its lock file
+ *  can't be written without it: on a fresh Windows account every key failed to save (E30, ENOENT on
+ *  auth.json.lock). Made at start-up, before anything signs in. Returns the folder. */
+export function ensureAuthDir(home = HOME) {
+  const dir = path.join(home, '.gg');
+  try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch { /* the key save will say why */ }
+  return dir;
+}
+
 /** One-time move from the Roamies-era places. `home` and `local` are for tests; every step is skipped when its
  *  new place already exists. Returns what was done, for the log. */
 export function migrateFromRoamies({ home = HOME, local = process.env.LOCALAPPDATA || '', data = path.join(home, '.tiro') } = {}) {

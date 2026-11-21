@@ -102,6 +102,17 @@ const never = () => new Promise(() => {}); // the event stream: stays open, send
 }
 {
   const srv = fakeServer({ proposals: [{ id: 'p9', kind: 'server_reboot', title: 'Reboot' }] });
+  // Someone else's account: no requests for the owner's pages (each refusal used to count toward a 30-minute block).
+  {
+    const other = fakeServer();
+    const o = createDashboard({ owner: () => false, call: other.call, send: () => {}, fetchImpl: never, pollMs: 1e9 });
+    o.handle({ type: 'dash_open' }); await tick();
+    o.handle({ type: 'dash_refresh' }); await tick();
+    const asked = other.calls.map(([, r]) => r);
+    assert.ok(!asked.some((r) => /^\/(system|hermes|server\/admin)\b/.test(r)), `owner-only pages asked for: ${asked.join(', ')}`);
+    assert.ok(asked.includes('/health') && asked.includes('/proposals'), 'the rest still loads');
+    o.stop();
+  }
   const d = createDashboard({ call: srv.call, send: () => {}, fetchImpl: never, pollMs: 1e9 });
   d.handle({ type: 'dash_open' }); await tick();
   d.handle({ type: 'dash_act', id: 'p9', card: 'proposal', ok: true, tapped: 'yes' }); await tick();
