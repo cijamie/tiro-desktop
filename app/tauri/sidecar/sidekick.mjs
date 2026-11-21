@@ -4,7 +4,7 @@
 //
 // in:  {type:'menu', id} {type:'answer', id, text} {type:'ui_ready'}
 // out: {type:'menu', items} {type:'ui', msg} {type:'overlays', ids}
-import { CONFIG_PATH as TIRO_CONFIG_PATH, DATA_DIR, MIGRATED } from './paths.mjs';
+import { CONFIG_PATH as TIRO_CONFIG_PATH, DATA_DIR, MIGRATED, ensureAuthDir } from './paths.mjs';
 import { Agent } from '@kenkaiiii/gg-agent';
 import { ClaudeCodeAgent, closeSpare } from './claudecode.mjs';
 import { SAFE, checkDrawAction, checkLink, checkOpen, checkRead, checkWrite, redactArgs } from './safety.mjs';
@@ -329,6 +329,7 @@ const PANEL = 'TiroDash (click my icon by the clock, behind the ^ arrow if it is
 const LAUNCH = process.env.TIRO_LAUNCH || 'tiro';
 const BIND = Object.fromEntries(['summon', 'talk', 'ask', 'list', 'panel'].map((k) => [k, `${LAUNCH} --${k}`]));
 
+ensureAuthDir(); // a fresh Windows account has no ~/.gg, and keys can't be saved without it
 const auth = new AuthStorage();
 // OpenRouter's and OpenCode's full model lists (gg-core ships only a few of each), cached next to the sessions.
 const catalogs = createCatalogs({ auth, dir: STORE_DIR });

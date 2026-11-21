@@ -2,7 +2,14 @@
   "updates": [
     {
       "version": null,
-      "date": "2026-11-20",
+      "date": "2026-11-21",
+      "items": [
+        { "kind": "fixed", "title": "Keys save on a new account", "text": "A fresh Windows account couldn't save any key (E30). Fixed." }
+      ]
+    },
+    {
+      "version": "0.2.33",
+      "date": "2026-11-21",
       "items": [
         { "kind": "new", "title": "TiroDash: one window", "text": "The panel and the dashboard are one app now. Click the tray icon to open it." },
         { "kind": "new", "title": "Sign in to your Tiro", "text": "One account for TiroDash, TiroWeb and your glasses. Approve a code in TiroWeb." },
