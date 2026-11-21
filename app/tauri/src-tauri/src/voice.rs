@@ -128,16 +128,8 @@ pub(crate) fn init_hotkeys(app: &AppHandle) {
         let list = e.id() == LIST_ID.load(Ordering::Relaxed);
         let esc = e.id() != 0 && e.id() == ESC_ID.load(Ordering::Relaxed);
         if esc {
-            // The panel has the keyboard: Esc closes it, as it would without this hotkey.
             let app2 = app.clone();
-            let _ = app.run_on_main_thread(move || {
-                let panel = app2.get_webview_window(PANEL_LABEL).filter(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false));
-                if panel.is_some() {
-                    hide_panel(&app2, "esc");
-                } else {
-                    to_overlays(&app2, &json!({ "kind": "esc" }));
-                }
-            });
+            let _ = app.run_on_main_thread(move || to_overlays(&app2, &json!({ "kind": "esc" })));
             return;
         }
         if !summon && !snap && !list {

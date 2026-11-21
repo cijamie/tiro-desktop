@@ -2,7 +2,8 @@
 
 Tiro desktop: Jamie's Windows assistant app, part of Tiro (server: github.com/cijamie/tiro, tiro.jamies.dev).
 A Tauri 2 shell in Rust (`app/tauri/src-tauri`), a Node sidecar that runs the agent (`app/tauri/sidecar`), shared
-browser JS for the overlay (`app/overlay`), the panel (`app/panel`) and the setup guide (`app/onboarding`), and two
+browser JS for the overlay (`app/overlay`), TiroDash (`app/dashboard`, the one window; the old tray panel `app/panel` runs
+inside it in embed mode) and the setup guide (`app/onboarding`), and two
 Windows helpers built by `build.sh`: voice (`src-tauri/voice-win`, Rust + Parakeet; `--transcribe <wav>` and
 `--test-audio <wav>` test speech, see the top of its `main.rs`) and hands (`src-tauri/hands-win`: windows,
 capture, UI Automation and OCR). Only hands-win's `logic.rs` builds off Windows, so `cargo test` there runs its
@@ -11,6 +12,9 @@ checks anywhere; `tiro-hands --smoke` drives Notepad on a real Windows desktop (
 Windows only since the split from Roamies (2026-11-17). Some JS still has inert `MAC`/`LINUX` branches; remove them
 when touching that code. The Cargo manifests keep their macOS/Linux dependency sections so `--locked` builds match
 Cargo.lock; prune them together with a lockfile update.
+
+Sign-in: TiroDash links the PC to one Tiro account (`sidecar/account.mjs`, server `brain/app/devlink.py`): a personal
+token kept with `secrets.mjs` (DPAPI) as `tiro-account`, sent by `tiro.mjs` on every request; no sign-in = Tailscale identity.
 
 Data: `~/.tiro` (`sidekick.json` settings, `sidekick/` memory, sessions, logs, DPAPI-encrypted voice keys),
 `~/.gg/auth.json` (sign-in, owned by the gg framework), `~/Tiro` (background agents' files), `%LOCALAPPDATA%\Tiro`

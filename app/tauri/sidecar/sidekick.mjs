@@ -53,7 +53,8 @@ import { OLLAMA, connectLocal, contextNote, downNote, forgetLocal, isSmallModel,
 import { activityLogs, buildReport, redact, reportDir, reportName, reveal, run, scrubConfig, tail } from './diagnostics.mjs';
 import { detailsText, explain } from './errors.mjs';
 import { aboutTiro } from './about.mjs';
-import { TERMINALS, readSelectionWin, tiroCall, tiroPrompt } from './tiro.mjs';
+import { TERMINALS, readSelectionWin, setTiroToken, tiroCall, tiroPrompt, tiroUrl } from './tiro.mjs';
+import { createAccount } from './account.mjs';
 import { handoffBody, handoffContext, isTiroWindow, route } from './walkaway.mjs';
 import { createDeskTools } from './desktools.mjs';
 import { brainOf, noteTurn, serverEvents, takeoverTool, tiroMemory } from './serverbrain.mjs';
@@ -322,7 +323,7 @@ const keyWords = (accel) => accel.replace(/Key|Digit/g, '').split('+')
   .map((p) => ({ Control: 'Ctrl', Command: 'Win' }[p] ?? p)).join('+');
 const TRAY = 'system tray';
 // Where settings live now: the panel that opens from the icon (the menu is just the basics).
-const PANEL = 'the panel (click my icon by the clock, behind the ^ arrow if it isn\'t showing, or open Tiro again from the Start menu)';
+const PANEL = 'TiroDash (click my icon by the clock, behind the ^ arrow if it isn\'t showing, or open Tiro again from the Start menu)';
 // What the shortcuts are on Wayland: whatever keys they bound to these commands in their desktop's settings.
 // TIRO_LAUNCH: how this copy is started (the app says: plain tiro for a package, the AppImage's path for one).
 const LAUNCH = process.env.TIRO_LAUNCH || 'tiro';
@@ -705,6 +706,18 @@ const dash = createDashboard({
   // Allow / Don't allow answered in the window: the same as answering the bubble, which then closes.
   onAnswer: (id, value) => { const r = pending.get(id); if (!r) return; pending.delete(id); ui({ kind: 'cancel_ask', id }); r(value); },
   onNew: () => { endIntro(); freshSession('new'); tiroChat.id = null; menu(); },
+});
+// The Tiro account this PC is signed in as (TiroDash's sign-in page, account.mjs): one person across TiroWeb,
+// TiroDash and the glasses. Signing in (or out) reloads TiroDash's TiroCloud pages as that person.
+let accountWas = null;
+const account = createAccount({
+  call: tiroCall, secrets, setToken: setTiroToken, base: () => tiroUrl(), open: (url) => openUrl(url),
+  dir: path.join(path.dirname(CONFIG_PATH), 'sidekick'), log: (o) => logLine('account', o),
+  onChange: (st) => {
+    send({ type: 'dash', msg: { kind: 'account', account: st } });
+    if (accountWas !== null && accountWas !== st.signedIn && dash.open) dash.handle({ type: 'dash_refresh' });
+    accountWas = st.signedIn;
+  },
 });
 // Rebuild the agent (same conversation) before the next message. Rarely needed now: memory and settings
 // reach the model through the live section, which is refreshed before every call.
@@ -1840,8 +1853,7 @@ function menu() {
   const items = [
     { id: 'status', label: status, enabled: false },
     { sep: true },
-    { id: 'dashboard', label: 'Open Dashboard…' },
-    { id: 'panel', label: 'Open Panel…' },
+    { id: 'dashboard', label: 'Open TiroDash…' },
     { id: 'show', label: `Show ${lookName()}`, ...(HOTKEYS_OK ? { accel: keys().summon } : {}) },
     { id: 'ask', label: `Ask ${lookName()}…`, enabled: !busy },
     ...(SNAP_OK ? [{ id: 'snap', label: 'Ask About an Area…', accel: keys().snap }] : []),
@@ -2405,6 +2417,7 @@ async function onGuide(m) {
 createInterface({ input: process.stdin }).on('line', (line) => {
   let m;
   try { m = JSON.parse(line); } catch { return; }
+  if (account.handle(m)) return;
   if (dash.handle(m)) return;
   if (m.type === 'menu') onMenu(m.id, m.via).catch((e) => console.error('menu', e));
   else if (m.type === 'panel_todo' && typeof m.text === 'string' && m.text.trim()) todayPage.addTodo(m.text).catch((e) => panelNote(`Couldn't add it: ${e.message}`, true));
@@ -2494,6 +2507,8 @@ let retired = (async () => {
   return notes;
 })();
 await retired;
+// The saved Tiro sign-in first, so the first requests to Tiro already go as that person.
+await account.load().catch((e) => console.error('account', e));
 await refreshAuth();
 // Before ensureModel, so a local model that's picked is still there (and an OpenRouter or OpenCode one).
 if (signedIn.get('local')) await syncLocal();

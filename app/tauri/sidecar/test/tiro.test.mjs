@@ -32,7 +32,7 @@ assert.match(await tools(async () => null, async () => '  ').read_selection.exec
 await assert.rejects(tools(async () => null, undefined, 'darwin').read_selection.execute({}), /only works on Windows/);
 
 await assert.rejects(tiroCall('GET', '/x', undefined, { fetchImpl: async () => { throw Object.assign(new Error('x'), { cause: { code: 'ENOTFOUND' } }); } }), /Tailscale/);
-await assert.rejects(tiroCall('GET', '/x', undefined, { fetchImpl: async () => new Response('{"detail":"not signed in"}', { status: 401 }) }), /recognise this computer/);
+await assert.rejects(tiroCall('GET', '/x', undefined, { fetchImpl: async () => new Response('{"detail":"not signed in"}', { status: 401 }) }), /Account page/);
 {
   let sent;
   await tiroCall('POST', '/chat', { message: 'hi' }, { env: {}, fetchImpl: async (url, o) => { sent = o; return new Response('{"reply":"ok"}'); } });

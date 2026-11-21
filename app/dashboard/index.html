@@ -3,14 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tiro</title>
+<title>TiroDash</title>
 <link rel="stylesheet" href="../theme/tokens.css">
 <link rel="stylesheet" href="dashboard.css">
 </head>
 <body>
 <header class="top">
-  <span class="brand">TIRO</span>
+  <span class="brand">TIRO<b>DASH</b></span>
   <div class="strip" id="strip" aria-label="TiroCloud at a glance"></div>
+  <button class="chip who" type="button" id="who" aria-label="Account" hidden><span class="tlbl">Signed in</span> <b id="whoName"></b></button>
   <button class="chip bell" type="button" id="bell" aria-label="Notifications"><span class="tlbl">Notifs</span> <b id="bellN" class="num">0</b></button>
 </header>
 <nav class="rail" aria-label="Pages">
@@ -109,14 +110,33 @@
   <section class="page" id="page-soon" hidden>
     <div class="panel"><div class="lbl">[ <b id="soonName">Soon</b> ]</div><p class="note" id="soonText"></p></div>
   </section>
-  <section class="page" id="page-settings" hidden>
-    <div class="panel">
-      <div class="lbl">[ <b>Settings</b> ]</div>
-      <p class="note">The model, voice, shortcuts and the rest live in the panel by the clock.</p>
-      <div class="btnrow"><button class="btn" type="button" id="openPanel">Open the panel</button><button class="btn ghost" type="button" id="openWeb">Open TiroDash</button></div>
+  <section class="page" id="page-account" hidden>
+    <div class="grid2">
+      <div class="panel"><div class="lbl">[ <b>Tiro account</b> ]<span class="r" id="acctDev"></span></div>
+        <div id="acctBox"></div>
+      </div>
+      <div class="panel"><div class="lbl">[ <b>One Tiro, every app</b> ]</div>
+        <p class="note">TiroDash, TiroWeb, the glasses and Hermes all answer as the account signed in here: the same chats, cards, files and memory. Signing in makes a key for this PC only; it shows in TiroWeb under Settings → Apps &amp; tokens, where it can be revoked.</p>
+        <div class="btnrow"><button class="btn ghost" type="button" id="openWeb">Open TiroWeb</button></div>
+      </div>
     </div>
   </section>
+  <!-- This PC and Settings: the old tray panel's pages (panel/index.html in embed mode), one frame for all of them. -->
+  <section class="page pc-page" id="page-pc" hidden>
+    <iframe id="pc" title="This PC" src="../panel/index.html?embed=1"></iframe>
+  </section>
 </main>
+<!-- Sign in: until this PC is linked to a Tiro account (or the person picks Not now for this time). -->
+<div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateH" hidden>
+  <div class="gate-box">
+    <span class="brand">TIRO<b>DASH</b></span>
+    <h1 id="gateH">Sign in to Tiro</h1>
+    <p class="note">One account for TiroDash, TiroWeb and your glasses. Your browser opens TiroWeb; approve the code there.</p>
+    <div id="gateBody"></div>
+    <p class="err" id="gateErr" hidden></p>
+    <p class="gate-foot"><button class="link" type="button" id="gateSkip">Not now</button><span class="note" id="gateDev"></span></p>
+  </div>
+</div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 <p class="snack" id="snack" role="status" hidden></p>
 <script src="dashboard.js"></script>

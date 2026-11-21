@@ -1,12 +1,18 @@
-// Tiro: this desktop app's link to Jamie's Tiro server (the brain behind tiro.jamies.dev). The server is only
-// reachable on his tailnet, and it signs this computer in by its Tailscale identity, so no key is kept here.
-// TIRO_URL changes the address; TIRO_TOKEN (a personal token from Tiro's Settings) is only a fallback.
+// Tiro: this desktop app's link to Jamie's Tiro server (the brain behind tiro.jamies.dev). Who it is: the Tiro account
+// signed in on TiroDash's sign-in page (account.mjs: a personal token, DPAPI-encrypted, sent as a Bearer token), so
+// it answers as the same person as TiroWeb and the glasses, on or off the tailnet. Not signed in: the server goes by
+// this computer's Tailscale identity, as before. TIRO_URL changes the address; TIRO_TOKEN is a fallback for tests.
 // Everything Tiro sends back can carry other people's words (emails, pages, notes), so it's information for the
 // model, never instructions; the tool results say so.
 import { execFile } from 'node:child_process';
 import { z } from 'zod';
 
 export const tiroUrl = (env = process.env) => String(env.TIRO_URL || 'https://tiro.jamies.dev').replace(/\/+$/, '');
+// The signed-in account's token (account.mjs sets it), kept only in memory here.
+let signedToken = '';
+export const setTiroToken = (t) => { signedToken = typeof t === 'string' ? t : ''; };
+/** The Authorization header for a request to Tiro, or null (Tailscale identity). */
+export const tiroAuth = (env = process.env) => { const t = signedToken || env.TIRO_TOKEN; return t ? `Bearer ${t}` : null; };
 const PUSH_MAX = 200; // Tiro's reminder text limit, which is what a phone notification shows
 const short = (s, n) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
@@ -14,7 +20,8 @@ const short = (s, n) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s)
 export async function tiroCall(method, route, body, { timeout = 20_000, env = process.env, fetchImpl = fetch } = {}) {
   // X-Tiro: 1 is how Tiro tells its own apps from other web pages; changes (every POST) are refused without it.
   const headers = { 'content-type': 'application/json', 'x-tiro': '1' };
-  if (env.TIRO_TOKEN) headers.authorization = `Bearer ${env.TIRO_TOKEN}`;
+  const auth = tiroAuth(env);
+  if (auth) headers.authorization = auth;
   let r;
   try {
     r = await fetchImpl(tiroUrl(env) + route, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(timeout) });
@@ -25,7 +32,9 @@ export async function tiroCall(method, route, body, { timeout = 20_000, env = pr
   const text = await r.text();
   let j;
   try { j = JSON.parse(text); } catch { j = { detail: text.slice(0, 200) }; }
-  if (r.status === 401) throw new Error("Tiro doesn't recognise this computer. Sign in to Tailscale with Jamie's account on it.");
+  if (r.status === 401) throw new Error(signedToken
+    ? "Tiro signed this computer out (the sign-in was revoked). Sign in again on TiroDash's Account page."
+    : "Tiro doesn't know who this computer is. Sign in on TiroDash's Account page (or turn on Tailscale).");
   if (r.status === 403) throw new Error(`Tiro refused it (403: ${typeof j.detail === 'string' ? j.detail : 'forbidden'}). This is a problem in the app or the server, not Tailscale.`);
   if (!r.ok) throw new Error(`Tiro said no (${r.status}): ${typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail ?? j).slice(0, 200)}`);
   return j;
