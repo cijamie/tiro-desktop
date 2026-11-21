@@ -112,6 +112,17 @@
       <div class="panel"><div class="lbl">[ <b>Jobs</b> ]<button class="r link" type="button" id="forgeRefresh">refresh</button></div><ul class="rows" id="jobs"></ul></div>
     </div>
   </section>
+  <section class="page app-page" id="page-photocull" hidden>
+    <div class="appbar"><span class="lbl">[ <b>Photo Cull</b> ]</span><span class="st" id="st-photocull"></span><span class="r"><button class="link" type="button" data-restart="photocull">restart</button></span></div>
+    <div class="appmsg" id="msg-photocull" hidden></div>
+    <iframe id="fr-photocull" title="Photo Cull" hidden></iframe>
+  </section>
+  <section class="page app-page" id="page-instatool" hidden>
+    <div class="appbar"><span class="lbl">[ <b>InstaTool</b> ]</span><span class="st" id="st-instatool"></span><span class="r"><button class="link" type="button" data-restart="instatool">restart</button></span></div>
+    <div class="appmsg" id="msg-instatool" hidden></div>
+    <form class="addrow appdir" id="dirForm" hidden><input id="dirIn" type="text" spellcheck="false" aria-label="InstaTool folder" placeholder="C:\Users\you\source\repos\instatool"><button class="btn" type="submit">Use this folder</button></form>
+    <iframe id="fr-instatool" title="InstaTool" hidden></iframe>
+  </section>
   <section class="page" id="page-logs" hidden>
     <div class="panel log-panel tall">
       <div class="lbl">[ <b>Activity</b> ]<span class="r" id="logCount"></span></div>

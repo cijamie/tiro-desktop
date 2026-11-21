@@ -208,6 +208,16 @@ button.fname:hover { color: var(--acc); }
 .btn.sm { padding: 4px 10px; font-size: 12px; }
 @media (max-width: 720px) { .files .frow { grid-template-columns: 44px minmax(0, 1fr) auto; } .fmeta { display: none; } .fsearch input { width: 140px; } }
 
+/* ---------- tools: local apps in a frame ---------- */
+main:has(> .app-page:not([hidden])) { padding: 0; overflow: hidden; }
+.app-page { max-width: none; height: 100%; display: flex; flex-direction: column; }
+.appbar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.appbar .r { margin-left: auto; }
+.appmsg { margin: 24px 28px; color: var(--muted); font-size: 14px; max-width: 760px; overflow-wrap: anywhere; }
+.appmsg.err { color: var(--bad); }
+.appdir { margin: 0 28px; max-width: 760px; }
+.app-page iframe { flex: 1; display: block; width: 100%; border: 0; background: var(--bg); }
+
 /* ---------- This PC + Settings: the panel's pages in a frame that fills the page ---------- */
 main:has(> .pc-page:not([hidden])) { padding: 0; overflow: hidden; }
 .pc-page { max-width: none; height: 100%; }
