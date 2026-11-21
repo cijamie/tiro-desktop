@@ -24,12 +24,12 @@
   const hhmm = (t) => { const d = new Date(t); return Number.isNaN(+d) ? '' : d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); };
   const money = (v) => `$${(Number(v) || 0).toFixed(2)}`;
 
-  const S = { account: null, skipped: false, kpi: null, deck: [], deckErr: '', lines: [], notes: { items: [], unread: 0 }, live: null, page: 'overview', filter: 'all', armed: null, busy: false, chat: [], asks: [], admin: null, jobs: [], uploads: [] };
+  const S = { account: null, skipped: false, kpi: null, deck: [], deckErr: '', lines: [], notes: { items: [], unread: 0 }, live: null, page: 'overview', filter: 'all', armed: null, busy: false, chat: [], asks: [], admin: null, jobs: [], uploads: [], files: null, downloads: [], fArmed: null, fBusy: false };
 
   // ---------------------------------------------------------------- rail
   // [id, name, group]. 'pc' pages are the panel's, shown in the frame.
   const PAGES = [
-    ['overview', 'Overview', 'TiroCloud'], ['chat', 'Chat', 'TiroCloud'], ['approvals', 'Approvals', 'TiroCloud'],
+    ['overview', 'Overview', 'TiroCloud'], ['chat', 'Chat', 'TiroCloud'], ['approvals', 'Approvals', 'TiroCloud'], ['files', 'Files', 'TiroCloud'],
     ['server', 'Server', 'TiroCloud'], ['hermes', 'Hermes', 'TiroCloud'], ['forge', 'Forge', 'TiroCloud'], ['logs', 'Logs', 'TiroCloud'],
     ['today', 'Today', 'This PC'], ['home', 'Home', 'This PC'], ['memory', 'Memory', 'This PC'],
     ['account', 'Account', 'Settings'], ['model', 'Model', 'Settings'], ['appearance', 'Appearance', 'Settings'],
@@ -59,6 +59,9 @@
   $('pc').addEventListener('load', () => { if (S.pcWant) { pcShow(S.pcWant); S.pcWant = null; } });
   function go(id, { fromPc = false } = {}) {
     if (!PAGES.some(([p]) => p === id) || (OWNER_ONLY.has(id) && notOwner())) id = 'overview';
+    // Files: the sidecar only uploads drops into a folder while this page shows it.
+    if (id === 'files' && S.page !== 'files') { S.fArmed = null; send({ type: 'dash_files', op: 'list', folder: S.files?.folder ?? '' }); }
+    else if (id !== 'files' && S.page === 'files') send({ type: 'dash_files', op: 'leave' });
     S.page = id;
     const page = PC.has(id) ? 'pc' : SOON[id] ? 'soon' : id;
     for (const s of document.querySelectorAll('.page')) s.hidden = s.id !== `page-${page}`;
@@ -230,7 +233,7 @@
     $('tail').scrollTop = $('tail').scrollHeight;
   }
   function forge() {
-    const ups = S.uploads;
+    const ups = S.uploads.filter((u) => !u.files);
     $('upPanel').hidden = !ups.length;
     fill($('ups'), ups.map((u) => el('li', {}, el('span', { class: `st ${u.state}`, text: u.state === 'uploading' ? `${u.pct}%` : u.state }),
       el('div', { class: 'x' }, u.name,
@@ -254,6 +257,59 @@
     kv('herm', h ? [['State', h.state, h.state === 'running' ? 'ok' : h.state === 'paused' ? 'warn' : ''], ['Today', `${money(h.today)} of ${money(h.cap)}`, h.cap && h.today >= h.cap ? 'bad' : ''], ['This month', money(h.month)]]
       : [['State', S.kpi ? 'unknown (owner only, or the server is offline)' : '…']]);
   }
+
+  // ---------------------------------------------------------------- Files
+  const fsend = (m) => send({ type: 'dash_files', ...m });
+  const bytes = (n) => { n = Number(n) || 0; const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return `${i ? n.toFixed(n < 10 ? 1 : 0) : n} ${u[i]}`; };
+  const day = (s) => { const d = new Date((Number(s) || 0) * 1000); if (!s || Number.isNaN(+d)) return ''; const t = new Date(); return d.toDateString() === t.toDateString() ? hhmm(d) : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(d.getFullYear() === t.getFullYear() ? {} : { year: 'numeric' }) }); };
+  const ICON = (x) => x.kind === 'folder' ? (x.special === 'quickdrop' ? 'DROP' : x.special === 'shared' ? 'SHRD' : 'DIR') : (/^image\//.test(x.mime) ? 'IMG' : /^video\//.test(x.mime) ? 'VID' : /^audio\//.test(x.mime) ? 'AUD' : /pdf/.test(x.mime) ? 'PDF' : /^text\//.test(x.mime) ? 'TXT' : 'FILE');
+  function filesPage() {
+    const f = S.files, trash = f?.folder === 'trash', search = !!f?.q;
+    // Crumbs: Files › a › b, or Files › Trash, or "Search: …"
+    const crumb = (name, folder, last) => last ? el('b', { text: name }) : el('button', { class: 'link', type: 'button', onclick: () => { $('fQ').value = ''; fsend({ op: 'list', folder }); } }, name);
+    const parts = [crumb('Files', '', !f || (!trash && !search && !f.path.length))];
+    if (trash) parts.push(' › ', crumb('Trash', 'trash', true));
+    else if (f) f.path.forEach((c, i) => parts.push(' › ', crumb(c.name, c.id, !search && i === f.path.length - 1)));
+    if (search) parts.push(' › ', el('b', { text: `Search: ${f.q}` }));
+    fill($('crumbs'), parts);
+    const u = f?.usage;
+    $('fUsage').textContent = u?.quota ? `${bytes(u.used)} of ${bytes(u.quota)}` : '';
+    $('fNew').disabled = $('fUp').disabled = !f || trash || search;
+    $('fHint').hidden = trash || search;
+    if (!f) { fill($('fList'), el('li', {}, el('span', { class: 'x note', text: '…' }))); }
+    else {
+      const rows = f.items.map((x) => {
+        const armed = S.fArmed === x.id;
+        const open = x.kind === 'folder' && !x.deleted ? () => { $('fQ').value = ''; fsend({ op: 'list', folder: x.id }); } : null;
+        const btns = x.deleted ? [el('button', { class: 'link', type: 'button', onclick: () => fsend({ op: 'restore', id: x.id }) }, 'Restore')]
+          : armed ? [el('button', { class: 'btn warn sm', type: 'button', onclick: () => { S.fArmed = null; fsend({ op: 'trash', id: x.id }); } }, 'Move to Trash'), el('button', { class: 'link', type: 'button', onclick: () => { S.fArmed = null; render(); } }, 'Keep')]
+            : [x.kind === 'file' ? el('button', { class: 'link', type: 'button', onclick: () => fsend({ op: 'download', id: x.id }) }, 'Download') : null,
+              x.special ? null : el('button', { class: 'link dim', type: 'button', 'aria-label': `Trash ${x.name}`, onclick: () => { S.fArmed = x.id; render(); } }, 'Trash')];
+        return el('li', { class: `frow ${x.kind}` }, el('span', { class: 'ficon', text: ICON(x) }),
+          open ? el('button', { class: 'fname link', type: 'button', onclick: open }, x.name) : el('span', { class: 'fname', text: x.name }),
+          el('span', { class: 'fmeta num', text: [x.kind === 'file' || x.size ? bytes(x.size) : '', day(x.deleted || x.modified)].filter(Boolean).join(' · ') }),
+          el('span', { class: 'fbtns' }, btns));
+      });
+      fill($('fList'), rows.length ? rows : [el('li', {}, el('span', { class: 'x note', text: search ? 'Nothing matches.' : trash ? 'Trash is empty.' : 'Nothing here yet. Upload or drop files.' }))],
+        f.error ? el('li', {}, el('span', { class: 'x err', text: f.error })) : null,
+        !trash && !search && !f.path.length ? el('li', { class: 'frow' }, el('span', { class: 'ficon', text: 'BIN' }), el('button', { class: 'fname link', type: 'button', onclick: () => fsend({ op: 'list', folder: 'trash' }) }, 'Trash'), el('span', { class: 'fmeta num', text: u?.trash ? bytes(u.trash) : '' }), el('span', { class: 'fbtns' })) : null);
+    }
+    // Transfers: uploads into Files and downloads, newest first.
+    const ups = S.uploads.filter((x) => x.files).map((x) => ({ ...x, dir: 'up' })), dls = S.downloads.map((x) => ({ ...x, dir: 'down' }));
+    const xs = [...ups, ...dls];
+    $('fXfer').hidden = !xs.length;
+    fill($('fXferList'), xs.map((x) => el('li', {}, el('span', { class: `st ${x.state === 'downloading' ? 'uploading' : x.state}`, text: x.state === 'uploading' || x.state === 'downloading' ? `${x.pct}%` : x.state }),
+      el('div', { class: 'x' }, `${x.dir === 'up' ? '↑' : '↓'} ${x.name}`, x.dir === 'up' && x.where ? el('span', { text: `to ${x.where}` }) : null,
+        x.state === 'uploading' || x.state === 'downloading' ? el('div', { class: 'bar' }, el('i', { style: `width:${x.pct}%` })) : null,
+        x.error ? el('span', { class: 'err', text: x.error }) : null),
+      x.dir === 'down' && x.state === 'done' ? el('button', { class: 'link go', type: 'button', onclick: () => fsend({ op: 'reveal', path: x.path }) }, 'Show in folder') : null)));
+  }
+  $('fSearch').addEventListener('submit', (e) => { e.preventDefault(); fsend({ op: 'search', q: $('fQ').value.trim() }); });
+  $('fQ').addEventListener('search', () => { if (!$('fQ').value) fsend({ op: 'list', folder: S.files?.folder === 'trash' ? '' : S.files?.folder ?? '' }); });
+  $('fUp').addEventListener('click', () => fsend({ op: 'pick' }));
+  $('fNew').addEventListener('click', () => { $('fNewForm').hidden = false; $('fNewIn').value = ''; $('fNewIn').focus(); });
+  $('fNewNo').addEventListener('click', () => { $('fNewForm').hidden = true; });
+  $('fNewForm').addEventListener('submit', (e) => { e.preventDefault(); const n = $('fNewIn').value.trim(); if (!n) return; fsend({ op: 'mkdir', name: n }); $('fNewForm').hidden = true; });
 
   // ---------------------------------------------------------------- Tiro Command
   const who = (role) => el('span', { class: 'who tlbl lbl', text: role === 'user' ? 'You' : 'Tiro' });
@@ -308,6 +364,7 @@
     else if (S.page === 'server') { server(); admin(); }
     else if (S.page === 'hermes') { hermes(); const c = S.kpi?.hermes?.cap; if (c != null && document.activeElement !== $('capIn')) $('capIn').value = String(c); }
     else if (S.page === 'forge') forge();
+    else if (S.page === 'files') filesPage();
     $('live').textContent = S.live == null ? '…' : S.live ? 'live' : 'reconnecting…';
   }
   function toast(n) {
@@ -336,7 +393,9 @@
     else if (m.kind === 'chat') { S.chat = m.items ?? []; S.asks = m.asks ?? []; }
     else if (m.kind === 'admin') S.admin = m;
     else if (m.kind === 'forge') S.jobs = m.jobs ?? [];
-    else if (m.kind === 'uploads') { S.uploads = m.items ?? []; if (S.uploads.length && S.page !== 'forge' && S.uploads.some((u) => u.state === 'waiting')) go('forge'); }
+    else if (m.kind === 'uploads') { S.uploads = m.items ?? []; if (S.uploads.length && S.page !== 'forge' && S.page !== 'files' && S.uploads.some((u) => u.state === 'waiting' && !u.files)) go('forge'); }
+    else if (m.kind === 'files') { S.files = m; if (S.fArmed && !m.items?.some((x) => x.id === S.fArmed)) S.fArmed = null; }
+    else if (m.kind === 'downloads') S.downloads = m.items ?? [];
     else if (m.kind === 'drag') document.body.classList.toggle('dragging', !!m.on);
     else if (m.kind === 'account') { const was = S.account?.signedIn; S.account = m.account ?? null; if (OWNER_ONLY.has(S.page) && notOwner()) go('overview'); if (S.account?.signedIn && was === false) snack(`Signed in as ${S.account.user?.name || S.account.user?.email || 'you'}.`); }
     render();
@@ -372,6 +431,15 @@
     if (msg.type === 'dash_answer') {
       const m = preview.chat.at(-1); m.tools[0].state = 'ok'; m.text = 'Done. I opened the report and added the results table.'; m.state = 'done';
       window.__dash({ kind: 'chat', items: preview.chat, asks: [] });
+      return;
+    }
+    if (msg.type === 'dash_files') {
+      const f = (folder) => folder === 'trash'
+        ? { folder: 'trash', path: [], items: [{ id: 't1', name: 'old notes.txt', kind: 'file', mime: 'text/plain', size: 2048, modified: 0, deleted: Date.now() / 1000 - 86400 }], usage: { used: 3.2e9, quota: 21.5e9, trash: 2048 } }
+        : folder ? { folder, path: [{ id: 'pA', name: 'Photos' }], items: [{ id: 'i1', name: 'IMG_2041.HEIC', kind: 'file', mime: 'image/heic', size: 2.4e6, modified: Date.now() / 1000 - 3600 }, { id: 'i2', name: '제주 여행.mp4', kind: 'file', mime: 'video/mp4', size: 412e6, modified: Date.now() / 1000 - 9e5 }], usage: { used: 3.2e9, quota: 21.5e9, trash: 2048 } }
+          : { folder: '', path: [], items: [{ id: 'qd', name: 'Quick Drop', kind: 'folder', special: 'quickdrop', size: 0 }, { id: 'pA', name: 'Photos', kind: 'folder', size: 1.1e9, modified: Date.now() / 1000 - 7200 }, { id: 'pB', name: 'Tiro Forge', kind: 'folder', size: 5e7 }, { id: 'f1', name: 'Lab report.docx', kind: 'file', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', size: 88e3, modified: Date.now() / 1000 - 600 }, { id: 'f2', name: 'syllabus.pdf', kind: 'file', mime: 'application/pdf', size: 1.3e6, modified: Date.now() / 1000 - 4e6 }], usage: { used: 3.2e9, quota: 21.5e9, trash: 2048 } };
+      if (msg.op === 'list') setTimeout(() => window.__dash({ kind: 'files', q: '', ...f(msg.folder) }), 30);
+      if (msg.op === 'download') setTimeout(() => window.__dash({ kind: 'downloads', items: [{ id: 'd1', name: 'Lab report.docx', state: 'done', pct: 100, path: 'C:\\Users\\jamie\\Downloads\\Lab report.docx' }, { id: 'd2', name: '제주 여행.mp4', state: 'downloading', pct: 37 }] }), 30);
       return;
     }
     if (msg.type !== 'dash_open' && msg.type !== 'dash_act') return;

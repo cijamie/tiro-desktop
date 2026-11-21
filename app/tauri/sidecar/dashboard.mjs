@@ -12,10 +12,16 @@
 // (onCommand → sidekick enqueue: the server's /desktop/chat with the PC's tools, /hermes, the Walkaway), and every
 // turn, from wherever it was asked, is mirrored here (asked + agent events). An Allow / Don't allow question from a PC
 // tool shows here too, as buttons; only those yes/no questions are mirrored, never a typed one (a key, a passphrase).
+//
+// Files (TiroCloud's Files, the same as TiroWeb's: Nextcloud or the brain's own store): browse, search, new folder,
+// upload (the picker or files dropped while the Files page is open land in the open folder), download to this PC's
+// Downloads folder (never opened or run: "Show in folder" only), and Trash / Restore (Trash keeps 30 days). Only items
+// the page was last shown can be downloaded, trashed or restored.
+import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { SAFE, checkNoticeLink, checkRead, checkUrl } from './safety.mjs';
+import { SAFE, checkNoticeLink, checkRead, checkUrl, checkWrite } from './safety.mjs';
 import { tiroAuth, tiroUrl } from './tiro.mjs';
 
 export const NEEDS_TAP = new Set(['mail_send', 'mail_trash', 'event_delete', 'drive_trash', 'doc_edit', 'server_reboot']);
@@ -32,6 +38,48 @@ const PIECE = 8 * 1024 * 1024;            // Drive's upload piece (the brain tak
 const MAX_UPLOAD = 4 * 1024 ** 3;         // Forge's own input limit
 export const HERMES_MAX_CAP = 5;
 const str = (v, n = 400) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+const ID_MAX = 3000;                      // Nextcloud ids are the path in base64, so they grow with it
+
+/** A Files item as the page gets it (names kept exactly: they become file names on download). */
+export const fileItem = (x) => ({
+  id: String(x?.id ?? '').slice(0, ID_MAX), name: String(x?.name ?? '').slice(0, 200), kind: x?.kind === 'folder' ? 'folder' : 'file',
+  special: str(x?.special, 20), size: Number(x?.size) || 0, mime: str(x?.mime, 100), modified: Number(x?.modified) || 0,
+  deleted: Number(x?.deleted) || 0, clip: !!x?.clip,
+});
+
+/** A name Windows can save: no reserved characters or device names, no trailing dots or spaces. */
+export function saveName(name) {
+  let n = String(name ?? '').replace(/[\x00-\x1f<>:"/\\|?*]/g, '_').replace(/[. ]+$/, '').trim();
+  if (n.length > 180) { const ext = path.extname(n).slice(0, 20); n = n.slice(0, 180 - ext.length) + ext; }
+  if (!n || /^\.+$/.test(n)) n = 'download';
+  if (/^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i.test(n)) n = `_${n}`;
+  return n;
+}
+/** dir/name, or "name (1).ext", "name (2).ext"… when that's taken. */
+export async function freePath(dir, name) {
+  const ext = path.extname(name), stem = name.slice(0, name.length - ext.length);
+  for (let i = 0; i < 1000; i++) {
+    const p = path.join(dir, i ? `${stem} (${i})${ext}` : name);
+    try { await fs.access(p); } catch { try { await fs.access(`${p}.part`); } catch { return p; } }
+  }
+  throw new Error('Too many files with that name in Downloads.');
+}
+
+// Windows: the Open dialog (several files), on top of TiroDash. Paths come back as JSON (UTF-8, so Korean names work).
+const PICK = [
+  'Add-Type -AssemblyName System.Windows.Forms',
+  '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
+  "$o = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false }",
+  "$d = New-Object System.Windows.Forms.OpenFileDialog -Property @{ Multiselect = $true; Title = 'Upload to TiroCloud' }",
+  'if ($d.ShowDialog($o) -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write((ConvertTo-Json -Compress -InputObject @($d.FileNames))) }',
+].join('; ');
+export const pickFilesWin = () => new Promise((res) => {
+  execFile('powershell', ['-NoProfile', '-NonInteractive', '-STA', '-Command', PICK], { windowsHide: true, timeout: 30 * 60_000, encoding: 'utf8', maxBuffer: 1 << 20 }, (err, stdout) => {
+    if (err) { res({ error: "Couldn't open the file picker. Drop the files on this window instead." }); return; }
+    try { const j = JSON.parse(stdout || '[]'); res({ paths: (Array.isArray(j) ? j : [j]).filter((x) => typeof x === 'string') }); } catch { res({ paths: [] }); }
+  });
+});
+const revealWin = (file) => execFile('explorer.exe', [`/select,"${file}"`], { windowsVerbatimArguments: true }, () => {});
 
 /** The Approval Deck: waiting proposals, then memories waiting for an OK (as TiroDash's loadDeck builds it). */
 export function deckFrom(proposals, memory) {
@@ -104,7 +152,7 @@ export const noticeLine = (n, t = Date.now()) => ({
  * safety.mjs checkNoticeLink). fetchImpl / env: for the event stream.
  * Returns { handle(msg) → true when it was a dash_* message, pc(recent), stop() }.
  */
-export function createDashboard({ owner = () => null, call, send, open: openUrl = () => {}, onCommand = () => {}, onAnswer = () => {}, onNew = () => {}, chatId = () => null, fetchImpl = fetch, env = process.env, now = () => Date.now(), log = () => {}, pollMs = 10_000, home = os.homedir() } = {}) {
+export function createDashboard({ owner = () => null, call, send, open: openUrl = () => {}, onCommand = () => {}, onAnswer = () => {}, onNew = () => {}, chatId = () => null, fetchImpl = fetch, env = process.env, now = () => Date.now(), log = () => {}, pollMs = 10_000, home = os.homedir(), pickFiles = pickFilesWin, reveal = revealWin, downloadsDir = null } = {}) {
   let open = false, poll = null, slow = null, sse = null, backoff = 5000, retry = null;
   // The conversation as the window shows it: { role: 'user'|'tiro', text, tools: [{ id, label, state }], state }.
   let chat = [], asks = new Map(), loadedChat = null;
@@ -181,11 +229,12 @@ export function createDashboard({ owner = () => null, call, send, open: openUrl 
   function onEvent({ type, data }) {
     if (type === 'notice' && data) {
       if (data.kind === 'forge') loadForge();
+      if (data.kind === 'drive' || data.kind === 'forge') filesChanged();
       out({ kind: 'toast', notice: { title: str(data.title, 160), body: str(data.body, 400), kind: str(data.kind, 30), url: str(data.url, 500) } });
       addLines([noticeLine(data, now())]);
       loadNotes();
     } else if (type === 'cards') loadDeck();
-    else if (type === 'drive') addLines([{ t: now(), src: 'server', kind: 'drive', text: 'Files changed' }]);
+    else if (type === 'drive') { addLines([{ t: now(), src: 'server', kind: 'drive', text: 'Files changed' }]); filesChanged(); }
   }
 
   async function act({ id, type, ok, tapped }) {
@@ -257,10 +306,11 @@ export function createDashboard({ owner = () => null, call, send, open: openUrl 
   // uploaded to Tiro's Files in 8 MB pieces, then offered for conversion. One at a time.
   let upChain = Promise.resolve(), upSeq = 0;
   const upOut = () => out({ kind: 'uploads', items: uploads });
-  function dropped(paths) {
+  // While the Files page is open on a folder, drops (and the picker) upload into it; otherwise they go to Forge.
+  function dropped(paths, dest = here !== null && here !== 'trash' ? { files: true, parent: here } : { files: false, parent: '' }) {
     for (const p of (Array.isArray(paths) ? paths : []).slice(0, 20)) {
       if (typeof p !== 'string' || !p) continue;
-      const u = { id: `u${++upSeq}`, name: str(path.basename(p), 200), pct: 0, state: 'waiting', error: '', file: null, to: [], ocr: false };
+      const u = { id: `u${++upSeq}`, name: str(path.basename(p), 200), pct: 0, state: 'waiting', error: '', file: null, to: [], ocr: false, files: dest.files, parent: dest.parent, where: dest.files ? (files?.path?.at(-1)?.name ?? 'Files') : '' };
       uploads = [u, ...uploads].slice(0, 12);
       upOut();
       upChain = upChain.then(() => upload(p, u)).catch((e) => { u.state = 'failed'; u.error = str(e?.message ?? e, 300); upOut(); });
@@ -272,9 +322,9 @@ export function createDashboard({ owner = () => null, call, send, open: openUrl 
     if (v.level !== SAFE) throw new Error(v.reason || 'That file is in a protected place, so it stays on this PC.');
     const st = await fs.stat(p);
     if (!st.isFile()) throw new Error('Drop files, not folders.');
-    if (st.size > MAX_UPLOAD) throw new Error('Too big for Forge (4 GB at most).');
+    if (!u.files && st.size > MAX_UPLOAD) throw new Error('Too big for Forge (4 GB at most).');
     u.state = 'uploading'; upOut();
-    const up = await call('POST', '/drive/uploads', { name: u.name, size: st.size }, { timeout: 30_000 });
+    const up = await call('POST', '/drive/uploads', { name: u.name, size: st.size, ...(u.parent ? { parent: u.parent } : {}) }, { timeout: 30_000 });
     let file = up.done ? up.file : null, at = 0;
     const fh = await fs.open(p, 'r');
     try {
@@ -293,10 +343,131 @@ export function createDashboard({ owner = () => null, call, send, open: openUrl 
       }
     } finally { await fh.close(); }
     if (!file?.id) throw new Error("The upload finished but Tiro didn't say where the file went.");
+    if (u.files) {
+      Object.assign(u, { state: 'done', pct: 100, file: { id: str(file.id, ID_MAX), name: str(file.name ?? u.name, 200) } });
+      addLines([{ t: now(), src: 'pc', kind: 'upload', text: `Uploaded ${u.name} to Files${u.where ? ` → ${u.where}` : ''}` }]);
+      upOut();
+      if (here === u.parent) loadFiles(here);
+      return;
+    }
     const t = await safe(call('GET', `/forge/targets?name=${encodeURIComponent(u.name)}`));
     Object.assign(u, { state: 'done', pct: 100, file: { id: str(file.id, 600), name: str(file.name ?? u.name, 200) }, to: (t.to ?? []).map((x) => str(x, 10)), ocr: !!t.ocr });
     addLines([{ t: now(), src: 'pc', kind: 'upload', text: `Uploaded ${u.name} to Tiro's Files` }]);
     upOut();
+  }
+
+  // ---- Files ----
+  // here: the folder the Files page shows ('' = the top, 'trash'), or null when the page isn't open.
+  let files = null, here = null, fileSeq = 0, changedT = null, picking = false;
+  let downloads = [], dlChain = Promise.resolve(), dlSeq = 0;
+  const saved = new Set(); // files this module saved (only those can be shown in Explorer)
+  const dlOut = () => out({ kind: 'downloads', items: downloads });
+  async function loadFiles(folder = '', q = '') {
+    const seq = ++fileSeq;
+    const r = await safe(call('GET', q ? `/drive/search?q=${encodeURIComponent(q.slice(0, 100))}` : `/drive?folder=${encodeURIComponent(folder.slice(0, ID_MAX))}`));
+    if (seq !== fileSeq) return; // a newer listing was asked for meanwhile
+    if (r.error) { out({ kind: 'files', ...(files ?? { folder, path: [], items: [] }), q, error: r.error }); return; }
+    if (q) files = { folder: files?.folder ?? folder, path: files?.path ?? [], items: (r.items ?? []).slice(0, 500).map(fileItem), q, usage: files?.usage ?? null };
+    else {
+      here = folder === 'trash' ? 'trash' : String(r.folder ?? '');
+      const u = r.usage ?? {};
+      files = { folder: here, q: '', items: (r.items ?? []).slice(0, 2000).map(fileItem),
+        path: (r.path ?? []).map((c) => ({ id: String(c.id ?? '').slice(0, ID_MAX), name: String(c.name ?? '').slice(0, 200) })),
+        usage: { used: Number(u.used) || 0, quota: Number(u.quota) || 0, trash: Number(u.trash) || 0 } };
+    }
+    out({ kind: 'files', ...files });
+  }
+  // Something changed on the server (another device, Forge, an upload): the open folder again, at most every 0.8 s.
+  function filesChanged() {
+    if (!open || here === null || files?.q) return;
+    clearTimeout(changedT);
+    changedT = setTimeout(() => loadFiles(here), 800);
+  }
+  const shown = (id) => (typeof id === 'string' && id ? files?.items.find((x) => x.id === id) : null);
+  async function fileOp(m) {
+    const op = String(m.op ?? '');
+    if (op === 'list') return loadFiles(typeof m.folder === 'string' ? m.folder : (here ?? ''));
+    if (op === 'leave') { here = null; return; }
+    if (op === 'search') { const q = String(m.q ?? '').trim(); return loadFiles(here ?? '', q); }
+    if (op === 'mkdir') {
+      const name = String(m.name ?? '').trim();
+      if (!name || name.length > 200 || /[\\/]/.test(name)) { out({ kind: 'note', text: 'A folder name, without / or \\.', bad: true }); return; }
+      if (here === null || here === 'trash') return;
+      const r = await safe(call('POST', '/drive/folder', { parent: here || null, name }));
+      if (r.error) { out({ kind: 'note', text: r.error, bad: true }); return; }
+      out({ kind: 'note', text: `Made the folder ${name}.` });
+      return loadFiles(here);
+    }
+    if (op === 'pick') {
+      if (picking || here === null || here === 'trash') return;
+      picking = true;
+      try {
+        const r = await pickFiles();
+        if (r?.error) out({ kind: 'note', text: r.error, bad: true });
+        else if (r?.paths?.length) await dropped(r.paths, { files: true, parent: here ?? '' });
+      } finally { picking = false; }
+      return;
+    }
+    if (op === 'reveal') { if (typeof m.path === 'string' && saved.has(m.path)) reveal(m.path); return; }
+    const x = shown(m.id);
+    if (!x) { out({ kind: 'note', text: 'That file is gone. Showing the folder again.', bad: true }); return loadFiles(here ?? ''); }
+    if (op === 'trash' && !x.deleted && !x.special) {
+      const r = await safe(call('DELETE', `/drive/${encodeURIComponent(x.id)}`));
+      if (r.error) { out({ kind: 'note', text: r.error, bad: true }); return; }
+      addLines([{ t: now(), src: 'pc', kind: 'drive', text: `Moved ${x.name} to Trash` }]);
+      out({ kind: 'note', text: `${x.name} is in Trash for 30 days.` });
+      return loadFiles(here ?? '', files?.q ?? '');
+    }
+    if (op === 'restore' && x.deleted) {
+      const r = await safe(call('POST', `/drive/${encodeURIComponent(x.id)}/restore`, {}));
+      if (r.error) { out({ kind: 'note', text: r.error, bad: true }); return; }
+      out({ kind: 'note', text: `Put ${x.name} back.` });
+      return loadFiles('trash');
+    }
+    if (op === 'download' && x.kind === 'file' && !x.deleted) {
+      const d = { id: `d${++dlSeq}`, name: x.name, pct: 0, state: 'waiting', error: '', path: '' };
+      downloads = [d, ...downloads].slice(0, 12);
+      dlOut();
+      dlChain = dlChain.then(() => download(x, d)).catch((e) => { d.state = 'failed'; d.error = str(e?.message ?? e, 300); dlOut(); });
+      return dlChain;
+    }
+  }
+  // One at a time, into a .part file that becomes the real name when it's all there.
+  async function download(x, d) {
+    const dir = downloadsDir ?? path.join(home, 'Downloads');
+    await fs.mkdir(dir, { recursive: true });
+    let dest = await freePath(dir, saveName(x.name));
+    const v = checkWrite(dest, home);
+    if (v.level !== SAFE) throw new Error(v.reason || "That name can't be saved here.");
+    d.state = 'downloading'; dlOut();
+    const headers = { 'x-tiro': '1' };
+    if (tiroAuth(env)) headers.authorization = tiroAuth(env);
+    const r = await fetchImpl(`${tiroUrl(env)}/drive/${encodeURIComponent(x.id)}/raw?dl=1`, { headers, signal: AbortSignal.timeout(6 * 3600_000) });
+    if (!r.ok || !r.body) {
+      const j = await r.json?.().catch(() => ({})) ?? {};
+      throw new Error(`Download stopped (${r.status}${typeof j.detail === 'string' ? `: ${j.detail}` : ''}).`);
+    }
+    const total = Number(r.headers?.get?.('content-length')) || x.size || 0;
+    const part = `${dest}.part`, fh = await fs.open(part, 'wx');
+    let got = 0, last = 0;
+    try {
+      for await (const chunk of r.body) {
+        await fh.write(chunk);
+        got += chunk.length;
+        if (total && now() - last > 250) { d.pct = Math.min(99, Math.round((got / total) * 100)); dlOut(); last = now(); }
+      }
+      await fh.close();
+    } catch (e) {
+      await fh.close().catch(() => {});
+      await fs.rm(part, { force: true });
+      throw new Error(`Download stopped: ${str(e?.message ?? e, 200)}`);
+    }
+    try { await fs.access(dest); dest = await freePath(dir, saveName(x.name)); } catch { /* still free */ }
+    await fs.rename(part, dest);
+    saved.add(dest);
+    Object.assign(d, { state: 'done', pct: 100, path: dest, name: path.basename(dest) });
+    addLines([{ t: now(), src: 'pc', kind: 'download', text: `Downloaded ${x.name} to Downloads` }]);
+    dlOut();
   }
 
   // ---- Tiro Command ----
@@ -348,6 +519,7 @@ export function createDashboard({ owner = () => null, call, send, open: openUrl 
     sendChat(); loadChat();
     kpi(); slowKpi(); loadDeck(); loadNotes(); loadAdmin(); loadForge(); connect();
     if (uploads.length) upOut();
+    if (downloads.length) dlOut();
     poll = setInterval(kpi, pollMs);
     slow = setInterval(slowKpi, 5 * 60_000);
   }
@@ -356,6 +528,7 @@ export function createDashboard({ owner = () => null, call, send, open: openUrl 
     clearInterval(poll); clearInterval(slow); clearTimeout(retry);
     poll = slow = retry = null;
     sse?.abort(); sse = null;
+    here = null; clearTimeout(changedT);
   }
 
   return {
@@ -385,6 +558,7 @@ export function createDashboard({ owner = () => null, call, send, open: openUrl 
       else if (m.type === 'dash_hermes_cap') hermesCap(m.usd);
       else if (m.type === 'dash_forge') { if (m.refresh) loadForge(); else forgeJob(m); }
       else if (m.type === 'dash_drop') dropped(m.paths);
+      else if (m.type === 'dash_files') fileOp(m).catch((e) => out({ kind: 'note', text: str(e?.message ?? e, 300), bad: true }));
       return true;
     },
     /** The PC's own actions (activity.mjs recent, newest first) into the log, each once. */
@@ -413,5 +587,8 @@ export function createDashboard({ owner = () => null, call, send, open: openUrl 
     get uploads() { return uploads; },
     /** For tests: the upload queue as a promise. */
     drop: (paths) => dropped(paths),
+    /** For tests: a Files action, finished. */
+    files: (m) => fileOp(m),
+    get downloads() { return downloads; },
   };
 }

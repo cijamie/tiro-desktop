@@ -1,7 +1,7 @@
 // The dashboard's link to TiroCloud (dashboard.mjs): the deck as the phone builds it, the KPI strip, the event stream,
 // and the rule that kinds needing a tap never change anything on a single gesture. Run: npm test
 import assert from 'node:assert/strict';
-import { createDashboard, deckFrom, kpiFrom, NEEDS_TAP, noticeLine, parseSse } from '../dashboard.mjs';
+import { createDashboard, deckFrom, fileItem, freePath, kpiFrom, NEEDS_TAP, noticeLine, parseSse, saveName } from '../dashboard.mjs';
 
 const tick = () => new Promise((r) => setTimeout(r, 5));
 
@@ -273,6 +273,109 @@ const never = () => new Promise(() => {}); // the event stream: stays open, send
   assert.deepEqual([photo.state, photo.pct, photo.file, photo.to, photo.ocr], ['done', 100, { id: 'f9', name: 'photo.heic' }, ['jpg', 'png'], true]);
   d.handle({ type: 'dash_forge', kind: 'convert', file_id: 'f9', to: 'jpg' }); await tick();
   assert.deepEqual(calls.filter(([m, r]) => m === 'POST' && r === '/forge').at(-1)[2], { kind: 'convert', file_id: 'f9', to: 'jpg' });
+  d.stop();
+  fsx.rmSync(home, { recursive: true, force: true });
+}
+// Files: browse, search, new folder, upload into the open folder, download to Downloads, Trash and Restore.
+{
+  const fsx = await import('node:fs');
+  const osx = await import('node:os');
+  const px = await import('node:path');
+  // Names Windows can save.
+  assert.equal(saveName('a/b:c*?.txt'), 'a_b_c__.txt');
+  assert.equal(saveName('CON'), '_CON'); assert.equal(saveName('nul.txt'), '_nul.txt'); assert.equal(saveName('report. . '), 'report');
+  assert.equal(saveName(''), 'download'); assert.equal(saveName('..'), 'download'); assert.equal(saveName('제주 여행.mp4'), '제주 여행.mp4');
+  assert.equal(saveName('x'.repeat(300) + '.jpeg').length, 180); assert.ok(saveName('x'.repeat(300) + '.jpeg').endsWith('.jpeg'));
+  assert.equal(fileItem({ id: 'p' + 'Q'.repeat(100), name: 'two  spaces.txt', kind: 'file', uid: 'secret' }).name, 'two  spaces.txt', 'names kept exactly');
+  assert.equal(fileItem({ id: 'p' + 'Q'.repeat(100) }).id.length, 101, 'long Nextcloud ids kept whole');
+  assert.ok(!('uid' in fileItem({ uid: 'x' })));
+
+  const home = fsx.mkdtempSync(px.join(osx.tmpdir(), 'tiro-files-home-'));
+  const dl = px.join(home, 'Downloads');
+  fsx.mkdirSync(dl); fsx.writeFileSync(px.join(dl, 'notes.txt'), 'old');
+  assert.equal(await freePath(dl, 'notes.txt'), px.join(dl, 'notes (1).txt'));
+  assert.equal(await freePath(dl, 'new.txt'), px.join(dl, 'new.txt'));
+
+  const deep = 'p' + 'L'.repeat(60); // a folder deep enough that its id is past the old 40-character limit
+  const calls = [], sent = [];
+  const listing = (folder) => folder === 'trash'
+    ? { folder: 'trash', path: [], items: [{ id: 't1', name: 'gone.txt', kind: 'file', deleted: 1700000000 }], usage: { used: 1, quota: 10 } }
+    : folder === deep ? { folder: deep, path: [{ id: deep, name: 'Shoot' }], items: [], usage: { used: 1, quota: 10 } }
+      : { folder: null, path: [], items: [{ id: 'qd', name: 'Quick Drop', kind: 'folder', special: 'quickdrop' }, { id: deep, name: 'Shoot', kind: 'folder' }, { id: 'f1', name: 'notes.txt', kind: 'file', size: 5 }, { id: 'f2', name: 'CON', kind: 'file', size: 3 }], usage: { used: 1, quota: 10, trash: 2 } };
+  const call = async (method, route, body) => {
+    calls.push([method, route, body]);
+    if (method === 'GET' && route.startsWith('/drive?folder=')) return listing(decodeURIComponent(route.slice(14)));
+    if (route.startsWith('/drive/search')) return { items: [{ id: 'f1', name: 'notes.txt', kind: 'file' }] };
+    if (route === '/drive/uploads') return { id: 'up2', received: 0 };
+    if (route === '/proposals' || route === '/memory') return { items: [] };
+    return { ok: true };
+  };
+  const gets = [], puts = [];
+  const fetchImpl = async (url, init = {}) => {
+    if (url.endsWith('/events')) return new Promise(() => {});
+    if (init.method === 'PUT') { puts.push(url); return { ok: true, status: 200, json: async () => ({ received: init.body.length, done: true, file: { id: 'n1', name: 'pic.jpg' } }) }; }
+    gets.push([url, init.headers?.['x-tiro']]);
+    const body = (async function* () { yield new TextEncoder().encode('hel'); yield new TextEncoder().encode('lo'); })();
+    return { ok: true, status: 200, headers: { get: (h) => (h === 'content-length' ? '5' : null) }, body };
+  };
+  const shownIn = [];
+  let picked = [];
+  const d = createDashboard({ call, send: (o) => sent.push(o), fetchImpl, pollMs: 1e9, env: { TIRO_URL: 'https://tiro.jamies.dev' }, home, reveal: (p) => shownIn.push(p), pickFiles: async () => ({ paths: picked }) });
+  d.handle({ type: 'dash_open' }); await tick();
+  const last = () => sent.filter((o) => o.msg.kind === 'files').at(-1).msg;
+
+  // Not open on Files: a drop still goes to Forge (no parent).
+  await d.files({ op: 'list', folder: '' });
+  assert.equal(last().folder, ''); assert.equal(last().items.length, 4);
+  // Downloads: only what the page was shown; saved under a name Windows takes, never over an old file.
+  await d.files({ op: 'download', id: 'nope' });
+  assert.equal(gets.length, 0, 'an id the page was never shown is refused');
+  await d.files({ op: 'download', id: 'qd' });
+  assert.equal(gets.length, 0, 'folders aren\'t downloaded');
+  await d.files({ op: 'download', id: 'f1' });
+  assert.deepEqual(gets[0], ['https://tiro.jamies.dev/drive/f1/raw?dl=1', '1']);
+  assert.equal(fsx.readFileSync(px.join(dl, 'notes (1).txt'), 'utf8'), 'hello');
+  assert.equal(fsx.readFileSync(px.join(dl, 'notes.txt'), 'utf8'), 'old', 'the old file is left alone');
+  assert.ok(!fsx.existsSync(px.join(dl, 'notes (1).txt.part')));
+  await d.files({ op: 'download', id: 'f2' });
+  assert.ok(fsx.existsSync(px.join(dl, '_CON')));
+  assert.deepEqual(d.downloads.map((x) => [x.state, x.name]), [['done', '_CON'], ['done', 'notes (1).txt']]);
+  await d.files({ op: 'reveal', path: px.join(home, '.ssh', 'id_rsa') });
+  await d.files({ op: 'reveal', path: px.join(dl, 'notes (1).txt') });
+  assert.deepEqual(shownIn, [px.join(dl, 'notes (1).txt')], 'only a file it saved is shown in Explorer');
+
+  // Into a deep folder: new folder and uploads (picker and drops) land there, with the whole id.
+  await d.files({ op: 'list', folder: deep });
+  await d.files({ op: 'mkdir', name: 'a/b' });
+  assert.ok(!calls.some(([m, r]) => m === 'POST' && r === '/drive/folder'), 'no slashes in a folder name');
+  await d.files({ op: 'mkdir', name: 'Picks' });
+  assert.deepEqual(calls.find(([m, r]) => m === 'POST' && r === '/drive/folder')[2], { parent: deep, name: 'Picks' });
+  fsx.writeFileSync(px.join(home, 'pic.jpg'), Buffer.alloc(10, 1));
+  picked = [px.join(home, 'pic.jpg')];
+  await d.files({ op: 'pick' }); await tick();
+  assert.deepEqual(calls.find(([m, r]) => m === 'POST' && r === '/drive/uploads')[2], { name: 'pic.jpg', size: 10, parent: deep });
+  const up = d.uploads[0];
+  assert.deepEqual([up.state, up.files, up.where], ['done', true, 'Shoot']);
+  assert.ok(!calls.some(([, r]) => r.startsWith('/forge/targets')), 'Files uploads aren\'t offered Forge conversions');
+  await d.drop([px.join(home, 'pic.jpg')]); await tick();
+  assert.equal(calls.filter(([m, r]) => m === 'POST' && r === '/drive/uploads').at(-1)[2].parent, deep, 'a drop on the Files page lands in the open folder');
+  // Left the page: drops go to Forge again.
+  await d.files({ op: 'leave' });
+  await d.drop([px.join(home, 'pic.jpg')]); await tick();
+  assert.ok(!('parent' in calls.filter(([m, r]) => m === 'POST' && r === '/drive/uploads').at(-1)[2]));
+
+  // Trash (not the special folders) and Restore; search lists the matches.
+  await d.files({ op: 'list', folder: '' });
+  await d.files({ op: 'trash', id: 'qd' });
+  assert.ok(!calls.some(([m]) => m === 'DELETE'), 'Quick Drop stays');
+  await d.files({ op: 'trash', id: 'f1' });
+  assert.deepEqual(calls.filter(([m]) => m === 'DELETE').map(([, r]) => r), ['/drive/f1']);
+  await d.files({ op: 'list', folder: 'trash' });
+  await d.files({ op: 'pick' });
+  await d.files({ op: 'restore', id: 't1' });
+  assert.ok(calls.some(([m, r]) => m === 'POST' && r === '/drive/t1/restore'));
+  await d.files({ op: 'search', q: 'notes' });
+  assert.equal(last().q, 'notes'); assert.equal(last().items[0].id, 'f1');
   d.stop();
   fsx.rmSync(home, { recursive: true, force: true });
 }

@@ -58,6 +58,21 @@
   <section class="page" id="page-approvals" hidden>
     <div class="panel deck big" id="deck-a"></div>
   </section>
+  <section class="page" id="page-files" hidden>
+    <div class="panel files-panel">
+      <div class="lbl">[ <b>Files</b> ]<span class="r num" id="fUsage"></span></div>
+      <div class="ftools">
+        <nav class="crumbs" id="crumbs" aria-label="Folder"></nav>
+        <form class="fsearch" id="fSearch" role="search"><input id="fQ" type="search" placeholder="Search Files" aria-label="Search Files" spellcheck="false"></form>
+        <button class="btn ghost" type="button" id="fNew">New folder</button>
+        <button class="btn" type="button" id="fUp">Upload…</button>
+      </div>
+      <form class="addrow" id="fNewForm" hidden><input id="fNewIn" type="text" maxlength="200" placeholder="Folder name" aria-label="New folder name" spellcheck="false"><button class="btn" type="submit">Make</button><button class="btn ghost" type="button" id="fNewNo">Cancel</button></form>
+      <ul class="rows files" id="fList"></ul>
+      <p class="hint" id="fHint">Drop files on this window to upload them here · downloads go to your Downloads folder</p>
+    </div>
+    <div class="panel" id="fXfer" hidden><div class="lbl">[ <b>Transfers</b> ]</div><ul class="rows" id="fXferList"></ul></div>
+  </section>
   <section class="page" id="page-server" hidden>
     <div class="grid2">
       <div class="stack">
