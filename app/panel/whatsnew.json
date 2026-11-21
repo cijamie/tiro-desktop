@@ -4,6 +4,14 @@
       "version": null,
       "date": "2026-11-21",
       "items": [
+        { "kind": "new", "title": "Photo Cull in TiroDash", "text": "Cull a shoot right in TiroDash (Tools). Ask Tiro to open a folder in it." },
+        { "kind": "new", "title": "InstaTool in TiroDash", "text": "InstaTool runs in TiroDash too. Tiro can import, and asks before anything that costs." }
+      ]
+    },
+    {
+      "version": "0.2.38",
+      "date": "2026-11-21",
+      "items": [
         { "kind": "new", "title": "Files in TiroDash", "text": "Browse, search, upload and download your TiroCloud files. Drops land in the open folder." }
       ]
     },

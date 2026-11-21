@@ -57,6 +57,7 @@ import { TERMINALS, readSelectionWin, setTiroToken, tiroCall, tiroPrompt, tiroUr
 import { createAccount } from './account.mjs';
 import { handoffBody, handoffContext, isTiroWindow, route } from './walkaway.mjs';
 import { createDeskTools } from './desktools.mjs';
+import { appSpecs, appTools, createLocalApps, INSTATOOL_DIR } from './localapps.mjs';
 import { brainOf, noteTurn, serverEvents, takeoverTool, tiroMemory } from './serverbrain.mjs';
 import { createToday } from './today.mjs';
 import { whatsNewOnStart } from './whatsnew.mjs';
@@ -505,6 +506,11 @@ const agents = createAgents({
   },
 });
 tools.push(...agents.tools);
+// Jamie's photo tools in TiroDash's Tools pages (localapps.mjs): Photo Cull (shipped with the app) and InstaTool (his folder).
+const instatoolDir = () => (typeof config.instatoolDir === 'string' && config.instatoolDir ? config.instatoolDir : INSTATOOL_DIR());
+const localApps = createLocalApps({ send, specs: () => appSpecs({ instatoolDir: instatoolDir() }), log: (o) => logLine('app', o) });
+// Photo Cull and InstaTool for the agent (and the server's brain, as pc_photo_cull / pc_instatool).
+tools.push(...appTools({ apps: localApps, ask, home: HOME, checkRead }));
 let requestNo = 0; // the request being answered (nextTurn), for holdAfterLaunch
 holdAfterLaunch(tools, () => requestNo);
 
@@ -2416,11 +2422,26 @@ async function onGuide(m) {
   }
 }
 
+// InstaTool's folder (TiroDash's InstaTool page): a folder on this PC that reading is allowed in; blank = the default.
+function setInstatoolDir(dir) {
+  const d = String(dir ?? '').trim().replace(/^"|"$/g, '');
+  const note = (text, bad = false) => send({ type: 'dash', msg: { kind: 'note', text, bad } });
+  if (d && (d.length > 500 || !path.isAbsolute(d) || checkRead(d, HOME).level !== 'safe')) { note('Give the full path of the InstaTool folder, e.g. C:\\Users\\you\\source\\repos\\instatool.', true); return; }
+  config.instatoolDir = d || null;
+  saveConfig();
+  localApps.stop('instatool');
+  note(`InstaTool's folder: ${instatoolDir()}`);
+  localApps.start('instatool').catch(() => {});
+}
+
 // ---------- main ----------
 createInterface({ input: process.stdin }).on('line', (line) => {
   let m;
   try { m = JSON.parse(line); } catch { return; }
   if (account.handle(m)) return;
+  if (localApps.handle(m)) return;
+  if (m.type === 'dash_open') localApps.opened();
+  if (m.type === 'app_folder') { setInstatoolDir(m.dir); return; }
   if (dash.handle(m)) return;
   if (m.type === 'menu') onMenu(m.id, m.via).catch((e) => console.error('menu', e));
   else if (m.type === 'panel_todo' && typeof m.text === 'string' && m.text.trim()) todayPage.addTodo(m.text).catch((e) => panelNote(`Couldn't add it: ${e.message}`, true));
@@ -2498,6 +2519,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   // The app quit (or is restarting for an update): save a reply still running, let the last saves land, never hang.
   if (busy) syncSession();
   agents.stopAll();
+  localApps.stopAll();
   closeSpare();
   Promise.race([flushWrites(), new Promise((r) => setTimeout(r, 3000))]).finally(() => process.exit(0));
 });

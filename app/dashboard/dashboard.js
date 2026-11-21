@@ -24,13 +24,14 @@
   const hhmm = (t) => { const d = new Date(t); return Number.isNaN(+d) ? '' : d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); };
   const money = (v) => `$${(Number(v) || 0).toFixed(2)}`;
 
-  const S = { account: null, skipped: false, kpi: null, deck: [], deckErr: '', lines: [], notes: { items: [], unread: 0 }, live: null, page: 'overview', filter: 'all', armed: null, busy: false, chat: [], asks: [], admin: null, jobs: [], uploads: [], files: null, downloads: [], fArmed: null, fBusy: false };
+  const S = { account: null, skipped: false, kpi: null, deck: [], deckErr: '', lines: [], notes: { items: [], unread: 0 }, live: null, page: 'overview', filter: 'all', armed: null, busy: false, chat: [], asks: [], admin: null, jobs: [], uploads: [], apps: {}, cullWant: null, files: null, downloads: [], fArmed: null, fBusy: false };
 
   // ---------------------------------------------------------------- rail
   // [id, name, group]. 'pc' pages are the panel's, shown in the frame.
   const PAGES = [
     ['overview', 'Overview', 'TiroCloud'], ['chat', 'Chat', 'TiroCloud'], ['approvals', 'Approvals', 'TiroCloud'], ['files', 'Files', 'TiroCloud'],
     ['server', 'Server', 'TiroCloud'], ['hermes', 'Hermes', 'TiroCloud'], ['forge', 'Forge', 'TiroCloud'], ['logs', 'Logs', 'TiroCloud'],
+    ['photocull', 'Photo Cull', 'Tools'], ['instatool', 'InstaTool', 'Tools'],
     ['today', 'Today', 'This PC'], ['home', 'Home', 'This PC'], ['memory', 'Memory', 'This PC'],
     ['account', 'Account', 'Settings'], ['model', 'Model', 'Settings'], ['appearance', 'Appearance', 'Settings'],
     ['speaking', 'Speaking', 'Settings'], ['listening', 'Listening', 'Settings'], ['shortcuts', 'Shortcuts', 'Settings'],
@@ -69,6 +70,7 @@
     if (PC.has(id) && !fromPc) pcShow(id);
     if (id === 'notes') { send({ type: 'dash_seen' }); }
     if (id === 'account') send({ type: 'acct_open' });
+    if (APPS.has(id) && S.apps[id]?.state !== 'on' && S.apps[id]?.state !== 'starting') send({ type: 'app_start', id });
     rail(); render();
     $('main').scrollTop = 0;
   }
@@ -258,6 +260,40 @@
       : [['State', S.kpi ? 'unknown (owner only, or the server is offline)' : '…']]);
   }
 
+  // ---------------------------------------------------------------- Tools: Photo Cull, InstaTool
+  // Each is a local server the sidecar started (localapps.mjs); its page runs in a frame that stays loaded while
+  // other pages show, so a half-done cull isn't lost. Only a http://127.0.0.1:<port>/ address is ever put in a frame.
+  const APPS = new Set(['photocull', 'instatool']);
+  const LOCAL = /^http:\/\/127\.0\.0\.1:\d{2,5}\/$/;
+  const APP_STATE = { off: 'off', starting: 'starting…', on: 'running', failed: 'failed' };
+  function appPage(id) {
+    const a = S.apps[id] ?? { state: 'off' }, fr = $(`fr-${id}`), msg = $(`msg-${id}`);
+    const st = $(`st-${id}`);
+    st.textContent = APP_STATE[a.state] ?? a.state;
+    st.className = `st ${a.state === 'on' ? 'done' : a.state === 'failed' ? 'failed' : a.state === 'starting' ? 'running' : ''}`;
+    const url = a.state === 'on' && LOCAL.test(a.url) ? a.url : '';
+    if (url && fr.dataset.url !== url) { fr.dataset.url = url; fr.src = url; }
+    if (!url && a.state !== 'starting' && fr.dataset.url) { fr.dataset.url = ''; fr.removeAttribute('src'); }
+    fr.hidden = !url;
+    msg.hidden = !!url;
+    msg.textContent = a.state === 'failed' ? a.error : a.state === 'starting' ? `Starting ${id === 'photocull' ? 'Photo Cull' : 'InstaTool'}…` : 'Not running.';
+    msg.classList.toggle('err', a.state === 'failed');
+    if (id === 'instatool') $('dirForm').hidden = a.state !== 'failed';
+  }
+  // Photo Cull: a folder to open, handed to its page once it's loaded (its own message listener, tiro_open).
+  function cullOpen() {
+    const fr = $('fr-photocull'), url = fr.dataset.url;
+    if (!S.cullWant || !url || !fr.dataset.loaded) return;
+    fr.contentWindow?.postMessage({ type: 'tiro_open', path: S.cullWant }, url.replace(/\/$/, ''));
+    S.cullWant = null;
+  }
+  for (const id of APPS) {
+    const fr = $(`fr-${id}`);
+    fr.addEventListener('load', () => { fr.dataset.loaded = fr.src ? '1' : ''; if (id === 'photocull') setTimeout(cullOpen, 300); });
+  }
+  for (const b of document.querySelectorAll('[data-restart]')) b.addEventListener('click', () => { const id = b.dataset.restart; $(`fr-${id}`).dataset.loaded = ''; send({ type: 'app_restart', id }); });
+  $('dirForm').addEventListener('submit', (e) => { e.preventDefault(); send({ type: 'app_folder', id: 'instatool', dir: $('dirIn').value.trim() }); });
+
   // ---------------------------------------------------------------- Files
   const fsend = (m) => send({ type: 'dash_files', ...m });
   const bytes = (n) => { n = Number(n) || 0; const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return `${i ? n.toFixed(n < 10 ? 1 : 0) : n} ${u[i]}`; };
@@ -365,6 +401,7 @@
     else if (S.page === 'hermes') { hermes(); const c = S.kpi?.hermes?.cap; if (c != null && document.activeElement !== $('capIn')) $('capIn').value = String(c); }
     else if (S.page === 'forge') forge();
     else if (S.page === 'files') filesPage();
+    else if (APPS.has(S.page)) appPage(S.page);
     $('live').textContent = S.live == null ? '…' : S.live ? 'live' : 'reconnecting…';
   }
   function toast(n) {
@@ -396,6 +433,8 @@
     else if (m.kind === 'uploads') { S.uploads = m.items ?? []; if (S.uploads.length && S.page !== 'forge' && S.page !== 'files' && S.uploads.some((u) => u.state === 'waiting' && !u.files)) go('forge'); }
     else if (m.kind === 'files') { S.files = m; if (S.fArmed && !m.items?.some((x) => x.id === S.fArmed)) S.fArmed = null; }
     else if (m.kind === 'downloads') S.downloads = m.items ?? [];
+    else if (m.kind === 'apps') { S.apps = m.apps ?? {}; for (const id of APPS) if (S.page !== id) appPage(id); }
+    else if (m.kind === 'goto' && PAGES.some(([p]) => p === m.page)) { if (m.page === 'photocull' && typeof m.folder === 'string') S.cullWant = m.folder; go(m.page); cullOpen(); }
     else if (m.kind === 'drag') document.body.classList.toggle('dragging', !!m.on);
     else if (m.kind === 'account') { const was = S.account?.signedIn; S.account = m.account ?? null; if (OWNER_ONLY.has(S.page) && notOwner()) go('overview'); if (S.account?.signedIn && was === false) snack(`Signed in as ${S.account.user?.name || S.account.user?.email || 'you'}.`); }
     render();
@@ -431,6 +470,10 @@
     if (msg.type === 'dash_answer') {
       const m = preview.chat.at(-1); m.tools[0].state = 'ok'; m.text = 'Done. I opened the report and added the results table.'; m.state = 'done';
       window.__dash({ kind: 'chat', items: preview.chat, asks: [] });
+      return;
+    }
+    if (msg.type === 'app_start' || msg.type === 'app_restart') {
+      setTimeout(() => window.__dash({ kind: 'apps', apps: { photocull: { state: 'starting', url: '', error: '' }, instatool: { state: 'failed', url: '', error: "InstaTool's Python environment isn't set up (C:\\Users\\jamie\\source\\repos\\instatool\\.venv is missing). See its README, \"One-time setup\"." } } }), 30);
       return;
     }
     if (msg.type === 'dash_files') {

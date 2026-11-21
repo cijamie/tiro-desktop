@@ -23,6 +23,7 @@ export const PC_TOOLS = new Map([
   ['draw', false], ['see_photo', false], ['list_files', false], ['search_files', false], ['read_file', false],
   ['open', true], ['act_in_app', true], ['write_file', true], ['run_command', true],
   ['say', false], ['notify', false], ['get_context', false], ['remind', true],
+  ['photo_cull', false], ['instatool', true],
 ]);
 export const PREFIX = 'pc_';
 const TAKEOVER = 'takeover';

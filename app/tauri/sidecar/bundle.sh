@@ -46,4 +46,6 @@ for (const name of process.argv.slice(2)) copy(name, process.cwd());
 EOF
 # The recorded beats (beats/make.mjs): the audio and its index, not the script.
 mkdir -p dist/beats && cp beats/index.json beats/*.pcm dist/beats/
+# Jamie's Photo Cull (localapps.mjs runs it with this app's Node): its server and page, as they are.
+mkdir -p dist/tools && cp -R tools/photo-cull dist/tools/
 echo '{"type":"module"}' > dist/package.json
