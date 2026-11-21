@@ -104,7 +104,7 @@ export const noticeLine = (n, t = Date.now()) => ({
  * safety.mjs checkNoticeLink). fetchImpl / env: for the event stream.
  * Returns { handle(msg) → true when it was a dash_* message, pc(recent), stop() }.
  */
-export function createDashboard({ call, send, open: openUrl = () => {}, onCommand = () => {}, onAnswer = () => {}, onNew = () => {}, chatId = () => null, fetchImpl = fetch, env = process.env, now = () => Date.now(), log = () => {}, pollMs = 10_000, home = os.homedir() } = {}) {
+export function createDashboard({ owner = () => null, call, send, open: openUrl = () => {}, onCommand = () => {}, onAnswer = () => {}, onNew = () => {}, chatId = () => null, fetchImpl = fetch, env = process.env, now = () => Date.now(), log = () => {}, pollMs = 10_000, home = os.homedir() } = {}) {
   let open = false, poll = null, slow = null, sse = null, backoff = 5000, retry = null;
   // The conversation as the window shows it: { role: 'user'|'tiro', text, tools: [{ id, label, state }], state }.
   let chat = [], asks = new Map(), loadedChat = null;
@@ -121,7 +121,10 @@ export function createDashboard({ call, send, open: openUrl = () => {}, onComman
     const t0 = now();
     const health = await safe(call('GET', '/health', undefined, { timeout: 8000 }));
     const ms = health.error ? null : now() - t0;
-    const [system, hermes] = await Promise.all([safe(call('GET', '/system', undefined, { timeout: 8000 })), safe(call('GET', '/hermes', undefined, { timeout: 8000 }))]);
+    // The server's stats and Hermes are the owner's only: someone else's TiroDash doesn't ask (owner() false: the signed-in
+    // account isn't the owner; null: not known yet, so it asks and the server says no).
+    const mine = owner() !== false;
+    const [system, hermes] = mine ? await Promise.all([safe(call('GET', '/system', undefined, { timeout: 8000 })), safe(call('GET', '/hermes', undefined, { timeout: 8000 }))]) : [null, null];
     kpiIn = { ...kpiIn, ms, health: health.error ? null : health, system, hermes, error: health.error ?? '' };
     if (open) out({ kind: 'kpi', kpi: kpiFrom(kpiIn) });
   }
@@ -200,6 +203,7 @@ export function createDashboard({ call, send, open: openUrl = () => {}, onComman
   // ---- Server, Hermes, Forge ----
   let admin = null, forge = { jobs: [] }, uploads = [];
   async function loadAdmin() {
+    if (owner() === false) return;
     const r = await safe(call('GET', '/server/admin', undefined, { timeout: 15_000 }));
     if (r.error) { out({ kind: 'admin', error: r.error }); return; }
     admin = {

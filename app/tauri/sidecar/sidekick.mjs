@@ -701,6 +701,8 @@ let agent = null, controller = null, busy = false, quiet = false, running = Prom
 const activity = createActivity();
 // The dashboard window (dashboard.mjs): the KPI strip, the activity log, the Approval Deck, while it's open.
 const dash = createDashboard({
+  // Owner-only pages (Server, Hermes) only for the owner's account; unknown (not signed in) is asked as before.
+  owner: () => (account.signedIn ? account.user?.owner === true : null),
   call: tiroCall, send, open: (url) => openUrl(url), log: (o) => logLine('dash', o), chatId: () => tiroChat.id,
   // Typed in Tiro Command: the same pipeline as the ask bar (enqueue routes /hermes and the Walkaway).
   onCommand: (text) => enqueue(text),
