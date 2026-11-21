@@ -186,6 +186,28 @@ main { min-width: 0; min-height: 0; overflow-y: auto; padding: 20px 28px 28px; }
 .st { flex: none; font: 600 10px/1.6 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
 .st.running, .st.queued, .st.uploading { color: var(--acc); } .st.done { color: var(--ok); } .st.failed { color: var(--bad); }
 
+/* ---------- files ---------- */
+.ftools { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.crumbs { flex: 1; min-width: 160px; font: 13px/1.4 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.crumbs b { color: var(--text); font-weight: 600; }
+.fsearch input { width: 200px; background: var(--raise); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; outline: 0; font: 13px var(--mono); color: var(--text); }
+.fsearch input:focus, .addrow input[type="text"]:focus { border-color: var(--acc); }
+.addrow input[type="text"] { flex: 1; min-width: 0; background: var(--raise); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; outline: 0; font: 14px var(--mono); color: var(--text); }
+#fNewForm { margin: 0 0 8px; }
+#fXfer { margin-top: 14px; }
+body.dragging .files-panel { border-color: var(--acc); }
+.files { max-height: calc(100vh - 230px); overflow-y: auto; }
+.files .frow { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 7px 0; }
+.ficon { font: 600 9px/1 var(--mono); letter-spacing: .1em; color: var(--muted); text-align: center; padding: 5px 0; border: 1px solid var(--line); border-radius: 4px; }
+.frow.folder .ficon { color: var(--acc); border-color: rgba(34, 211, 238, .35); }
+.fname { min-width: 0; overflow-wrap: anywhere; text-align: left; color: var(--text); }
+button.fname:hover { color: var(--acc); }
+.fmeta { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.fbtns { display: flex; gap: 12px; align-items: center; justify-content: flex-end; min-width: 120px; }
+.link.dim { color: var(--muted); } .link.dim:hover { color: var(--bad); }
+.btn.sm { padding: 4px 10px; font-size: 12px; }
+@media (max-width: 720px) { .files .frow { grid-template-columns: 44px minmax(0, 1fr) auto; } .fmeta { display: none; } .fsearch input { width: 140px; } }
+
 /* ---------- This PC + Settings: the panel's pages in a frame that fills the page ---------- */
 main:has(> .pc-page:not([hidden])) { padding: 0; overflow: hidden; }
 .pc-page { max-width: none; height: 100%; }

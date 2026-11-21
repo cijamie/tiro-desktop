@@ -4,6 +4,13 @@
       "version": null,
       "date": "2026-11-21",
       "items": [
+        { "kind": "new", "title": "Files in TiroDash", "text": "Browse, search, upload and download your TiroCloud files. Drops land in the open folder." }
+      ]
+    },
+    {
+      "version": "0.2.36",
+      "date": "2026-11-21",
+      "items": [
         { "kind": "fixed", "title": "Keys save on a new account", "text": "A fresh Windows account couldn't save any key (E30). Fixed." },
         { "kind": "fixed", "title": "No lock-out for other people", "text": "Only the owner's TiroDash shows Server and Hermes, so others aren't blocked." }
       ]
