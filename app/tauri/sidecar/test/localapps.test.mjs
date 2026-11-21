@@ -58,7 +58,7 @@ assert.equal(sent.filter((o) => o.msg?.kind === 'goto').length, 0);
 // and run only after Allow; Don't allow sends nothing.
 {
   const port = 18000 + Math.floor(Math.random() * 2000);
-  const fake = createLocalApps({ send: () => {}, specs: () => ({ instatool: { name: 'InstaTool', cmd: process.execPath, args: [fileURLToPath(new URL('./fixtures/fake-instatool.cjs', import.meta.url)), String(port)], cwd: home, wait: 10_000, probe: 'api/status' } }) });
+  const fake = createLocalApps({ send: () => {}, specs: () => ({ instatool: { name: 'InstaTool', cmd: process.execPath, args: [fileURLToPath(new URL('./fixtures/fake-instatool.cjs', import.meta.url)), String(port)], cwd: os.tmpdir(), wait: 10_000, probe: 'api/status' } }) });
   const asked = [];
   let answer = "Don't allow";
   const tool = instatoolTool({ apps: { start: (id) => fake.start(id), show: () => {} }, ask: async (o) => { asked.push(o.placeholder); return answer; }, home, checkRead, pollMs: 20 });
@@ -83,6 +83,7 @@ assert.equal(sent.filter((o) => o.msg?.kind === 'goto').length, 0);
 }
 apps.stop('photocull');
 assert.equal(apps.state.photocull.state, 'off');
-fs.rmSync(home, { recursive: true, force: true });
+// Windows keeps a folder busy for a moment after the processes in it are killed.
+try { fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch { /* the OS cleans its temp folder */ }
 console.log('localapps tests passed');
 process.exit(0);
