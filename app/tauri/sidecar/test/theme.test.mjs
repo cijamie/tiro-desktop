@@ -84,7 +84,7 @@ for (const page of ['panel/panel.js', 'onboarding/onboarding.js', 'overlay/12-si
 }
 // The overlay paints with the tokens too: no colour literals (the one '#fff' is agent.js's glyph mask, never
 // shown), no glow or blur, no pixel fonts, and the CRT entrance is gone.
-const OVERLAY = ['glass.js', 'agent.js', 'agent-home.js', 'agent-panel.js', 'ask-bar.js', 'ink.js', 'pen.js', 'minis.js', 'agent-cards.js', '12-sidekick.js'];
+const OVERLAY = ['glass.js', 'agent.js', 'agent-home.js', 'agent-panel.js', 'ask-bar.js', 'ink.js', 'pen.js', 'minis.js', 'agent-cards.js', '12-sidekick.js', 'readmark.js'];
 for (const f of OVERLAY) {
   const text = src(`overlay/${f}`).replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   const hexes = [...text.matchAll(/#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/g)].map((m) => m[0]).filter((h) => !(f === 'agent.js' && h === '#fff'));
@@ -107,5 +107,16 @@ assert.match(src('tauri/src-tauri/voice-win/src/ink.rs'), /pass\(r, \[0x22 as f6
   assert.ok(html.indexOf('theme/tokens.css') > -1 && html.indexOf('theme/tokens.css') < html.indexOf('dashboard.css'), 'the dashboard loads tokens.css first');
   assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(js), 'the dashboard never parses server text as HTML');
   assert.match(src('tauri/build.sh'), /cp -R [^\n]*\.\.\/dashboard /, 'build.sh ships the dashboard');
+}
+// The read highlight: a thin green box (or underline) on what Tiro just read, in the theme's green, no glow.
+{
+  const rm = src('overlay/readmark.js');
+  assert.match(rm, /border: 2px solid \$\{T\.ok\}/);
+  assert.ok(!/box-shadow|drop-shadow|filter:/.test(rm), 'no glow');
+  assert.ok(src('desktop.html').includes('<script src="overlay/readmark.js"></script>'));
+  assert.match(src('overlay/host.js'), /if \(m\.kind === 'readmark'\) \{ Tiro\.readMark\?\.\(m\); return; \}/);
+  const tools = src('tauri/sidecar/tools.mjs');
+  assert.equal((tools.match(/ui\(\{ kind: 'readmark', bounds/g) ?? []).length, 2, 'screenshots and window reads mark what they read');
+  assert.match(src('tauri/sidecar/sidekick.mjs'), /mark: async \(\) => \{ const b = await frontBounds\(\); if \(b\) ui\(\{ kind: 'readmark', bounds: b, style: 'line' \}\); \}/);
 }
 console.log('theme tests passed');
