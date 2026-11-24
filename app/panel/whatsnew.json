@@ -4,7 +4,7 @@
       "version": null,
       "date": "2026-11-24",
       "items": [
-        { "kind": "new", "title": "Find photos with Tiro", "text": "Ask Tiro for a set from your InstaTool shoot, then make it a carousel. Asks before it costs." }
+        { "kind": "new", "title": "Find photos with Tiro", "text": "Ask Tiro for a set from your InstaTool shoot, then make it a carousel. Asks if it costs." }
       ]
     },
     {
