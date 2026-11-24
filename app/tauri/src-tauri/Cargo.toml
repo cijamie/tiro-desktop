@@ -7,7 +7,7 @@ description = "Tiro desktop: Jamie's assistant on the screen (based on Tiro by K
 repository = "https://github.com/cijamie/tiro-desktop"
 
 [build-dependencies]
-tauri-build = { version = "=2.7.4", features = [] }
+tauri-build = { version = "=2.7.6", features = [] }
 
 [dependencies]
 tauri = { version = "=2.12.5", features = ["tray-icon", "macos-private-api"] }
