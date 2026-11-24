@@ -79,6 +79,22 @@ assert.equal(sent.filter((o) => o.msg?.kind === 'goto').length, 0);
   assert.match(await tool.execute({ action: 'export' }), /4 post\(s\) and 1 Story set\(s\), 15 images, to C:\\out\\plan7/);
   assert.deepEqual(await ran(), ['Import photos', 'Analyse photos', 'Plan posts', 'Export']);
   assert.equal(asked.length, 3, 'only the paid steps asked');
+  // find asks (paid), keeps the conversation for follow-ups; make_post is free; clear asks and never trashes files.
+  await assert.rejects(tool.execute({ action: 'make_post' }), /use find first/);
+  answer = "Don't allow";
+  assert.match(await tool.execute({ action: 'find', request: '9 blue photos' }), /said no/);
+  answer = 'Allow';
+  const found = await tool.execute({ action: 'find', request: '9 blue photos' });
+  assert.match(found, /blue night light[\s\S]*Blue night \(2\)[\s\S]*1\. DSCF0001\.JPG \(man with umbrella\)[\s\S]*2\. DSCF0002\.JPG/);
+  assert.match(asked.at(-1), /pick from 12 analysed photos: "9 blue photos"\? About \$0\.020/);
+  await tool.execute({ action: 'find', request: 'swap the second' });
+  assert.match(await tool.execute({ action: 'make_post' }), /Added "Blue night" \(2 photos\) to his feed plan #7/);
+  await assert.rejects(tool.execute({ action: 'make_post', set: 2 }), /only 1 set/);
+  answer = "Don't allow";
+  assert.match(await tool.execute({ action: 'clear' }), /nothing was cleared/);
+  answer = 'Allow';
+  assert.match(await tool.execute({ action: 'clear' }), /12 photo\(s\) and 1 plan\(s\) removed/);
+  assert.deepEqual((await ran()).slice(4), ['Chat 1', 'Chat 3', 'Post h1,h2', 'Clear clear false']);
   fake.stopAll();
 }
 apps.stop('photocull');

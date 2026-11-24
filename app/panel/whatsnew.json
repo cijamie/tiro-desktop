@@ -2,6 +2,13 @@
   "updates": [
     {
       "version": null,
+      "date": "2026-11-24",
+      "items": [
+        { "kind": "new", "title": "Find photos with Tiro", "text": "Ask Tiro for a set from your InstaTool shoot, then make it a carousel. Asks if it costs." }
+      ]
+    },
+    {
+      "version": "0.2.41",
       "date": "2026-11-21",
       "items": [
         { "kind": "new", "title": "Photo Cull in TiroDash", "text": "Cull a shoot right in TiroDash (Tools). Ask Tiro to open a folder in it." },

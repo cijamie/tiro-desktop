@@ -188,12 +188,14 @@ export function instatoolTool({ apps, ask, home = os.homedir(), checkRead = null
     }
   }
   const allow = async (question, ctx) => isYes(await ask({ placeholder: question, choices: ['Allow', "Don't allow"] }, ctx?.signal));
+  // find: the conversation so far (follow-ups refine the last picks) and its last sets, for make_post.
+  let chat = [], lastSets = [];
   const still = (name, log) => `${name} is still running in InstaTool (it carries on; the InstaTool page in TiroDash shows its progress).${log.length ? ` Latest: ${log.join(' / ')}` : ''}`;
   return {
     name: 'instatool',
-    description: "Jamie's InstaTool: sorts camera photos into Instagram posts (Claude scores photos, groups carousels, orders the feed, drafts captions), runs on this PC. action: status (latest import, analysed count, plan, spend); import (folder: a shoot's folder; free, no Claude); analyze (Claude pass 1 on the new photos; limit: only that many; costs money, so it shows the estimate and asks him); plan (re-check the best, group into posts, captions; costs money, asks); export (numbered post folders from the latest plan); open (the InstaTool page in TiroDash, where he reorders the grid and edits captions). One step at a time; reordering and editing are done by him on the page.",
-    parameters: z.object({ action: z.enum(['status', 'import', 'analyze', 'plan', 'export', 'open']), folder: z.string().max(1000).optional(), limit: z.number().int().min(1).max(2000).optional() }),
-    execute: async ({ action, folder, limit }, ctx) => {
+    description: "Jamie's InstaTool: sorts camera photos into Instagram posts (Claude scores photos, groups carousels, orders the feed, drafts captions), runs on this PC. action: status (latest import, analysed count, plan, spend); import (folder: a shoot's folder; free, no Claude); analyze (Claude pass 1 on the new photos; limit: only that many; costs money, so it shows the estimate and asks him); plan (re-check the best, group into posts, captions; costs money, asks); export (numbered post folders from the latest plan); open (the InstaTool page in TiroDash, where he reorders the grid and edits captions); find (request: what he wants in his words, e.g. \"9 photos that are blue and have the same theme\"; Claude picks from the analysed photos of the latest shoot, text only, a few cents, so it asks him; follow-ups like \"swap the third one\" keep the earlier picks); make_post (the set from the last find, set: which one if there were several, from 1: a new carousel in his feed plan, free); clear (every imported photo, shoot and plan leaves InstaTool; asks him; his photo files are never touched). One step at a time; reordering and editing are done by him on the page.",
+    parameters: z.object({ action: z.enum(['status', 'import', 'analyze', 'plan', 'export', 'open', 'find', 'make_post', 'clear']), folder: z.string().max(1000).optional(), limit: z.number().int().min(1).max(2000).optional(), request: z.string().max(1000).optional(), set: z.number().int().min(1).max(10).optional() }),
+    execute: async ({ action, folder, limit, request, set }, ctx) => {
       if (action === 'open') { apps.show('instatool'); await apps.start('instatool'); return 'InstaTool is open in TiroDash.'; }
       const base = await apps.start('instatool');
       if (action === 'status') {
@@ -235,6 +237,36 @@ export function instatoolTool({ apps, ask, home = os.homedir(), checkRead = null
         return action === 'analyze'
           ? `Analysed ${x.ok ?? 0} photo(s) for ${money(x.usd)}.${x.flagged?.length ? ` ${x.flagged.length} flagged (tried again next time).` : ''} Next: plan (asks first).`
           : `Plan #${x.plan_id} is ready (${money(x.usd)}). He reorders posts and picks captions on the InstaTool page; then export.`;
+      }
+      if (action === 'find') {
+        const text = String(request ?? '').trim();
+        if (!text) throw new Error('What should it look for? e.g. "9 photos that are blue and have the same theme".');
+        const est = await api(base, 'POST', 'api/chat/estimate');
+        if (!est.photos) return 'No analysed photos in the latest shoot yet: import, then analyze (asks first).';
+        if (!(await allow(`Ask ${est.model} to pick from ${est.photos} analysed photos: "${text.slice(0, 160)}"? About ${money(est.usd)}, at most ${money(est.usd_worst_case)}.`, ctx))) return 'Jamie said no, so nothing was sent to Claude and nothing was spent.';
+        const messages = [...chat, { role: 'user', text }].slice(-12);
+        const r = await api(base, 'POST', 'api/chat', { messages });
+        const { photos = [] } = await api(base, 'GET', 'api/photos');
+        const byHash = new Map(photos.map((p) => [p.hash, p]));
+        chat = [...messages, { role: 'assistant', text: r.reply, picks: (r.groups ?? []).flatMap((g) => g.photos) }];
+        lastSets = r.groups ?? [];
+        const sets = lastSets.map((g, i) => `${lastSets.length > 1 ? `Set ${i + 1}: ` : ''}${g.title} (${g.photos.length}): ${g.why}\n` +
+          g.photos.map((h, n) => `  ${n + 1}. ${byHash.get(h)?.filename ?? h.slice(0, 8)}${byHash.get(h)?.frame?.subject ? ` (${byHash.get(h).frame.subject})` : ''}`).join('\n'));
+        return [`${r.reply} (${money(r.usd)})`, ...sets, lastSets.length ? 'make_post turns a set into a carousel in his feed plan.' : ''].filter(Boolean).join('\n');
+      }
+      if (action === 'make_post') {
+        const g = lastSets[(set ?? 1) - 1];
+        if (!g) throw new Error(lastSets.length ? `There were only ${lastSets.length} set(s).` : 'Nothing picked yet: use find first.');
+        const r = await api(base, 'POST', 'api/chat/post', { hashes: g.photos, title: g.title });
+        return `Added "${g.title}" (${r.frames} photo${r.frames === 1 ? '' : 's'}) to his feed plan #${r.plan_id} as a new post. He orders it and picks a caption on the InstaTool page (captions: "New caption ideas…" there).`;
+      }
+      if (action === 'clear') {
+        const s = await api(base, 'GET', 'api/status');
+        if (!s.import_id) return 'There are no photos in InstaTool to clear.';
+        if (!(await allow('Clear InstaTool: every imported photo, shoot and feed plan leaves InstaTool? Photo files stay where they are; past Instagram posts and saved Claude results stay.', ctx))) return 'Jamie said no, so nothing was cleared.';
+        const r = await api(base, 'POST', 'api/photos/clear', { confirm: 'clear', trash_originals: false });
+        chat = []; lastSets = [];
+        return `Cleared InstaTool: ${r.photos} photo(s) and ${r.plans_dropped} plan(s) removed. No files were touched.`;
       }
       // export: the latest plan
       const s = await api(base, 'GET', 'api/status');
