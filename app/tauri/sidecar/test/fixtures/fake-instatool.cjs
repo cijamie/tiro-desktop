@@ -14,6 +14,11 @@ const routes = {
   'POST /api/plan/estimate': () => ({ import_id: 1, missing_pass1: 0, pass2_photos: 3, caption_posts: 4, model: 'claude-sonnet-5-5', usd: 0.31, usd_worst_case: 0.6 }),
   'POST /api/plan/run': () => job('Plan posts', { plan_id: 7, usd: 0.28 }),
   'POST /api/plan/7/export': () => job('Export', { posts: 4, stories: 1, images: 15, folder: 'C:\\out\\plan7', problems: [] }),
+  'POST /api/chat/estimate': () => ({ import_id: 1, photos: 12, model: 'claude-sonnet-5-5', usd: 0.02, usd_worst_case: 0.06 }),
+  'POST /api/chat': (b) => { ran.push(`Chat ${b.messages.length}`); return { reply: 'These share blue night light.', usd: 0.018, groups: [{ title: 'Blue night', why: 'Neon in the rain.', photos: ['h1', 'h2'] }] }; },
+  'GET /api/photos': () => ({ photos: [{ hash: 'h1', filename: 'DSCF0001.JPG', frame: { subject: 'man with umbrella' } }, { hash: 'h2', filename: 'DSCF0002.JPG', frame: null }] }),
+  'POST /api/chat/post': (b) => { ran.push(`Post ${b.hashes.join(',')}`); return { plan_id: 7, post_id: 3, frames: b.hashes.length }; },
+  'POST /api/photos/clear': (b) => { ran.push(`Clear ${b.confirm} ${b.trash_originals}`); return { photos: 12, plans_dropped: 1, posts_emptied: 0, trashed: 0, problems: [] }; },
   'GET /ran': () => ran,
 };
 setTimeout(() => http.createServer((req, res) => {
